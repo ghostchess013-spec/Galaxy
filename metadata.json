@@ -1,0 +1,6 @@
+{
+  "name": "NEXORA — Hermes Fleet Mission Control",
+  "description": "Operator system for orchestrating a fleet of Hermes AI agents with 3D Agent City, missions board, voice mode, direct chat, document library, system health telemetry, and live shell.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
