@@ -1,20 +1,28 @@
 import { useRef, useState } from 'react';
 import {
+  BedDouble,
   Camera,
   ChevronDown,
   ChevronUp,
   Compass,
+  Layers,
   MessageSquare,
   Rocket,
+  Sofa,
   Trash2,
   Upload,
   UserPlus,
+  Users,
   X,
 } from 'lucide-react';
 import { PORTRAIT_GALLERY } from '../../data/seedData';
 import type { Agent, AgentStatus, ThemeId } from '../../types/nexora';
 import { compressImageToPortraitDataUrl } from '../AddAgentModal';
-import AgentCity3D from '../AgentCity3D';
+import AgentOffice3D, {
+  type AgentLiveMood,
+  type OfficeCameraPreset,
+  type OfficeFloorView,
+} from '../AgentOffice3D';
 
 interface AgentCityViewProps {
   agents: Agent[];
@@ -44,9 +52,11 @@ export default function AgentCityView({
   const [portraitModalOpen, setPortraitModalOpen] = useState(false);
   const [avatarError, setAvatarError] = useState<string>('');
   const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [floorView, setFloorView] = useState<OfficeFloorView>('all');
+  const [moods, setMoods] = useState<Record<string, AgentLiveMood>>({});
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
   const [cameraPreset, setCameraPreset] = useState<{
-    mode: 'overview' | 'focus' | 'top';
+    mode: OfficeCameraPreset;
     nonce: number;
   }>({ mode: 'overview', nonce: 0 });
 
@@ -54,12 +64,11 @@ export default function AgentCityView({
     agents.find((a) => a.id === selectedAgentId) ?? agents.find((a) => a.isHQ) ?? agents[0];
 
   const workingCount = agents.filter((a) => a.status === 'working').length;
+  const idleCount = agents.filter((a) => a.status === 'idle').length;
   const totalSessions = agents.reduce((sum, a) => sum + a.sessionsCount, 0);
-  const avgReply =
-    agents.length > 0
-      ? (agents.reduce((sum, a) => sum + a.avgReplySec, 0) / agents.length).toFixed(1)
-      : '0.0';
   const totalTokens = agents.reduce((sum, a) => sum + a.tokensUsed, 0);
+
+  const selectedMood = selectedAgent ? moods[selectedAgent.id] : undefined;
 
   const handleUploadSelectedPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -77,17 +86,17 @@ export default function AgentCityView({
 
   return (
     <div className="flex flex-col h-[calc(100vh-5.5rem)] min-h-[640px] gap-4">
-      {/* Header & 4-KPI Strip matching NEXORA 3.0 */}
+      {/* Header & 4-KPI Office Telemetry Strip */}
       <div className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-              GALAXY / Agent City
+              GALAXY / 3D AI Agent Office · 2 Lantai
             </p>
             <h1 className="font-editorial text-3xl leading-tight mt-0.5 text-[var(--nx-text)]">
-              Your crew is{' '}
+              Your office is{' '}
               <span className="italic text-[var(--nx-accent)]">
-                {workingCount > 0 ? 'working.' : 'at rest.'}
+                {workingCount > 0 ? 'alive.' : 'relaxing.'}
               </span>
             </h1>
           </div>
@@ -95,10 +104,19 @@ export default function AgentCityView({
           <div className="flex flex-wrap items-center gap-6">
             <div>
               <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
-                Working right now
+                Meja & Kasur (1:1)
+              </p>
+              <p className="font-mono text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
+                {agents.length}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
+                Working / Santai
               </p>
               <p className="font-mono text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
                 {workingCount}
+                <span className="text-sm font-normal text-[var(--nx-text-muted)]"> / {idleCount}</span>
               </p>
             </div>
             <div>
@@ -107,14 +125,6 @@ export default function AgentCityView({
               </p>
               <p className="font-mono text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
                 {totalSessions}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
-                Average reply
-              </p>
-              <p className="font-mono text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
-                {avgReply}s
               </p>
             </div>
             <div>
@@ -138,31 +148,113 @@ export default function AgentCityView({
         </div>
       </div>
 
-      {/* Full Unobstructed 3D Viewport with Collapsible Bottom Dock */}
+      {/* Full Unobstructed 2-Floor 3D Office Viewport with Collapsible Bottom Dock */}
       <div className="relative flex-1 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] overflow-hidden">
-        <AgentCity3D
+        <AgentOffice3D
           agents={agents}
           selectedAgentId={selectedAgent?.id ?? null}
           onSelectAgent={onSelectAgent}
           theme={theme}
+          floorView={floorView}
           cameraPresetTrigger={cameraPreset}
+          onMoodSnapshot={setMoods}
         />
 
         {/* Collapsible Unified Bottom Control & Inspector Dock (no backdrop-blur over WebGL) */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-col items-center px-4">
+        <div className="pointer-events-none absolute inset-x-0 bottom-3.5 flex flex-col items-center px-3">
           <button
             type="button"
             onClick={() => setDockCollapsed((v) => !v)}
             className="pointer-events-auto mb-1.5 inline-flex items-center gap-1.5 rounded-t-lg border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] px-3 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] cursor-pointer"
           >
             {dockCollapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            <span>{dockCollapsed ? 'Show Inspector Dock' : 'Hide Inspector Dock'}</span>
+            <span>{dockCollapsed ? 'Show Office Controls' : 'Hide Office Controls'}</span>
           </button>
 
           {!dockCollapsed && selectedAgent && (
-            <div className="pointer-events-auto w-full max-w-4xl rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)]/95 px-4 py-3 shadow-2xl">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                {/* Selected Tower Identity */}
+            <div className="pointer-events-auto w-full max-w-5xl rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)]/95 px-4 py-3 shadow-2xl space-y-2.5">
+              {/* Row 1: Floor View Switcher + Room Camera Presets */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--nx-border)]">
+                <div
+                  className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-1"
+                  role="group"
+                  aria-label="Floor view mode"
+                >
+                  {(
+                    [
+                      { id: 'all', label: '2 Lantai', icon: Layers },
+                      { id: 'floor1', label: 'Lantai 1 · Kantor', icon: Users },
+                      { id: 'floor2', label: 'Lantai 2 · Kamar Tidur', icon: BedDouble },
+                    ] as const
+                  ).map((item) => {
+                    const Icon = item.icon;
+                    const active = floorView === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setFloorView(item.id)}
+                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]'
+                            : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCameraPreset((prev) => ({ mode: 'overview', nonce: prev.nonce + 1 }))
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2.5 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
+                  >
+                    <Compass className="h-3 w-3" />
+                    <span>Overview</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFloorView('floor1');
+                      setCameraPreset((prev) => ({ mode: 'meeting', nonce: prev.nonce + 1 }));
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2.5 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
+                  >
+                    <span>Meeting</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFloorView('floor1');
+                      setCameraPreset((prev) => ({ mode: 'lounge', nonce: prev.nonce + 1 }));
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2.5 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
+                  >
+                    <Sofa className="h-3 w-3" />
+                    <span>Ruang Tamu</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFloorView('floor2');
+                      setCameraPreset((prev) => ({ mode: 'dorm', nonce: prev.nonce + 1 }));
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2.5 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
+                  >
+                    <BedDouble className="h-3 w-3" />
+                    <span>Kamar L2</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 2: Selected Agent Identity + Live Thought + Actions */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     type="button"
@@ -187,20 +279,25 @@ export default function AgentCityView({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-[var(--nx-text)] truncate">
-                        {selectedAgent.buildingName}
+                        {selectedAgent.name}
                       </span>
                       <span className="text-xs text-[var(--nx-text-muted)]">·</span>
                       <span className="text-xs text-[var(--nx-text-muted)] truncate">
-                        {selectedAgent.name} ({selectedAgent.profileKey})
+                        {selectedAgent.role}
+                      </span>
+                      <span className="font-mono text-[10px] rounded bg-[var(--nx-surface)] border border-[var(--nx-border)] px-1.5 py-0.5 text-[var(--nx-text-subtle)]">
+                        Lantai {selectedMood?.floor ?? 1}
                       </span>
                     </div>
                     <p className="text-xs text-[var(--nx-text-subtle)] truncate max-w-md">
-                      {selectedAgent.currentTask}
+                      {selectedAgent.status === 'working'
+                        ? `💻 ${selectedAgent.currentTask}`
+                        : selectedMood?.thought ?? selectedAgent.currentTask}
                     </p>
                   </div>
                 </div>
 
-                {/* Live Status Switcher + Camera + Actions */}
+                {/* Live Status Switcher + Chat / Brief / Retire */}
                 <div className="flex flex-wrap items-center gap-2">
                   <div
                     className="flex items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-1"
@@ -225,17 +322,6 @@ export default function AgentCityView({
                       );
                     })}
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCameraPreset((prev) => ({ mode: 'overview', nonce: prev.nonce + 1 }))
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-2.5 py-1.5 text-xs font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
-                  >
-                    <Compass className="h-3.5 w-3.5" />
-                    <span>Overview</span>
-                  </button>
 
                   <button
                     type="button"

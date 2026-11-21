@@ -153,7 +153,7 @@ const PRIMARY_NAV: Array<{ id: NavSection; label: string; icon: typeof Compass }
   { id: 'missions', label: 'Missions', icon: Target },
   { id: 'docs', label: 'Docs', icon: FileText },
   { id: 'schedule', label: 'Schedule', icon: CalendarClock },
-  { id: 'city', label: 'Agent City', icon: Building2 },
+  { id: 'city', label: 'Agent Office', icon: Building2 },
   { id: 'health', label: 'Health', icon: Activity },
 ];
 

@@ -534,7 +534,7 @@ export default function AddAgentModal({
                   <span className="font-mono text-[var(--nx-text)]">
                     ~/.hermes/profiles/{previewSlug}/SOUL.md
                   </span>{' '}
-                  and constructs the 3D tower immediately.
+                  and adds a 1:1 desk &amp; Floor 2 bed immediately.
                 </p>
                 <button
                   type="submit"

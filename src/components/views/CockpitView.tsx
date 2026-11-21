@@ -9,7 +9,7 @@ import type {
   ThemeId,
 } from '../../types/nexora';
 import { calculateHealthSummary } from '../../utils/nexoraLogic';
-import AgentCity3D from '../AgentCity3D';
+import AgentOffice3D from '../AgentOffice3D';
 import HealthDial from '../HealthDial';
 
 interface CockpitViewProps {
@@ -146,18 +146,18 @@ export default function CockpitView({
           </div>
         </section>
 
-        {/* Center Column: 3D Agent City Hero Stage + 4-KPI Strip */}
+        {/* Center Column: 2-Floor 3D AI Agent Office Hero Stage + 4-KPI Strip */}
         <section className="xl:col-span-6 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden">
           <div className="px-6 pt-5 pb-4 border-b border-[var(--nx-border)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-                  GALAXY / Agent City
+                  GALAXY / Agent Office · 2 Lantai
                 </p>
                 <h1 className="font-editorial text-3xl leading-tight mt-1 text-[var(--nx-text)]">
                   Your crew is{' '}
                   <span className="italic text-[var(--nx-accent)]">
-                    {workingAgents.length > 0 ? 'working.' : 'standing by.'}
+                    {workingAgents.length > 0 ? 'working.' : 'relaxing.'}
                   </span>
                 </h1>
               </div>
@@ -175,13 +175,13 @@ export default function CockpitView({
                   onClick={() => onNavigate('city')}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap shrink-0 transition-colors cursor-pointer"
                 >
-                  <span>Open Full City</span>
+                  <span>Open Full Office</span>
                   <ArrowUpRight className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
 
-            {/* 4-Column Crew Telemetry Strip matching maxres.jpg */}
+            {/* 4-Column Crew Telemetry Strip */}
             <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
                 <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
@@ -193,7 +193,7 @@ export default function CockpitView({
                 <p className="text-[11px] text-[var(--nx-text-subtle)] mt-0.5 truncate">
                   {alertAgents.length > 0
                     ? `${alertAgents.length} alert requiring review`
-                    : `${agents.length} towers on island`}
+                    : `${agents.length} desks & beds (1:1)`}
                 </p>
               </div>
               <div>
@@ -233,7 +233,7 @@ export default function CockpitView({
           </div>
 
           <div className="relative flex-1 min-h-[360px]">
-            <AgentCity3D
+            <AgentOffice3D
               agents={agents}
               selectedAgentId={selectedAgentId}
               onSelectAgent={(id) => {
@@ -407,7 +407,7 @@ export default function CockpitView({
               onClick={() => onNavigate('city')}
               className="text-xs font-medium text-[var(--nx-accent)] hover:underline whitespace-nowrap cursor-pointer"
             >
-              Manage in City
+              Manage in Office
             </button>
           </div>
 
