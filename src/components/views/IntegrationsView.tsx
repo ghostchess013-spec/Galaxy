@@ -169,8 +169,8 @@ export default function IntegrationsView({
               className="accent-[var(--nx-accent)] h-3.5 w-3.5"
             />
             <span>
-              Show strictly live <span className="font-mono text-[var(--nx-text)]">~/.hermes/</span>{' '}
-              profiles in 3D Agent City when connected (hide unprovisioned preset towers)
+              1:1 sync with live <span className="font-mono text-[var(--nx-text)]">~/.hermes/</span>{' '}
+              profiles in 3D Agent City when connected (default — hide unprovisioned preset towers)
             </span>
           </label>
 

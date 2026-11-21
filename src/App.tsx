@@ -88,6 +88,7 @@ import {
   saveBridgeFile,
   sendBridgeChat,
   speakViaBridge,
+  updateBridgeAgentAvatar,
 } from './services/nexoraBridge';
 
 const STORAGE_KEY = 'nexora_mission_control_v3';
@@ -493,8 +494,15 @@ export default function App() {
     preset: RolePreset,
     customName?: string,
     customBuilding?: string,
+    customAvatarUrl?: string,
   ) => {
-    const { agents: nextAgents, hired } = hireSpecialist(agents, preset, customName, customBuilding);
+    const { agents: nextAgents, hired } = hireSpecialist(
+      agents,
+      preset,
+      customName,
+      customBuilding,
+      customAvatarUrl,
+    );
     setAgents(nextAgents);
     setSelectedAgentId(hired.id);
     pushInterAgentLog(
@@ -510,10 +518,22 @@ export default function App() {
         role: hired.role,
         model: hired.model,
         arch: hired.archetype,
+        avatar: hired.avatarUrl,
         soul: `# SOUL.md — ${hired.name}\n\n${hired.soulSummary}\n`,
       }).catch(() => {
         // Optimistic tower stays visible; next WS sync reconciles server state
       });
+    }
+  };
+
+  const handleUpdateAgentAvatar = (agentId: string, avatarUrl: string) => {
+    const target = agents.find((a) => a.id === agentId);
+    setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, avatarUrl } : a)));
+    if (target && bridgeStatus === 'live' && sessionToken) {
+      const slug = target.isHQ ? 'default' : target.profileKey;
+      void updateBridgeAgentAvatar(settings.bridgeUrl, sessionToken, slug, avatarUrl).catch(
+        () => {},
+      );
     }
   };
 
@@ -1113,6 +1133,7 @@ export default function App() {
               theme={settings.theme}
               onSelectAgent={setSelectedAgentId}
               onUpdateStatus={handleUpdateAgentStatus}
+              onUpdateAvatar={handleUpdateAgentAvatar}
               onHireSpecialist={handleHireSpecialist}
               onRetireSpecialist={handleRetireSpecialist}
               onOpenChat={handleOpenChat}

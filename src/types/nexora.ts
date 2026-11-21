@@ -240,6 +240,7 @@ export interface BridgeRemoteAgent {
   model: string;
   arch: string;
   soul: string;
+  avatar?: string;
   status: 'IDLE' | 'EXECUTING' | 'ALERT';
   task: string;
   is_core?: boolean;

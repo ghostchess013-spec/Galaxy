@@ -7,6 +7,7 @@ import type {
   InterAgentLog,
   WorkspaceFile,
 } from '../types/nexora';
+import { pickAutoPortrait } from '../data/seedData';
 import { rebalanceCitySlots } from '../utils/nexoraLogic';
 
 const VALID_ARCHETYPES: BuildingArchetype[] = [
@@ -197,9 +198,28 @@ export async function resolveBridgeApproval(
 export async function createBridgeAgent(
   baseUrl: string,
   token: string,
-  payload: { slug: string; role: string; model: string; arch: string; soul?: string },
+  payload: {
+    slug: string;
+    role: string;
+    model: string;
+    arch: string;
+    soul?: string;
+    avatar?: string;
+  },
 ): Promise<{ ok: boolean; slug?: string }> {
   return bridgeJson(baseUrl, token, '/api/agents', { method: 'POST', body: payload });
+}
+
+export async function updateBridgeAgentAvatar(
+  baseUrl: string,
+  token: string,
+  agentId: string,
+  avatar: string,
+): Promise<{ ok: boolean }> {
+  return bridgeJson(baseUrl, token, `/api/agents/${encodeURIComponent(agentId)}/avatar`, {
+    method: 'PUT',
+    body: { avatar },
+  });
 }
 
 export async function deleteBridgeAgent(
@@ -281,7 +301,6 @@ export function mergeBridgeTelemetry(
   healthChecks: HealthCheck[];
   interAgentLogs: InterAgentLog[];
 } {
-  const defaultAvatar = currentAgents[0]?.avatarUrl ?? '/src/assets/images/avatar_executor_1795234267459.jpg';
   const remoteByProfile = new Map(telemetry.agents.map((ra) => [ra.id, ra]));
 
   const updatedAgents: Agent[] = [];
@@ -298,6 +317,7 @@ export function mergeBridgeTelemetry(
         status: mapRemoteStatus(remote.status),
         currentTask: remote.task || existing.currentTask,
         model: remote.model || existing.model,
+        avatarUrl: remote.avatar || existing.avatarUrl,
         soulSummary: remote.soul ? remote.soul.slice(0, 220) : existing.soulSummary,
       });
     } else if (!showOnlyVpsAgents) {
@@ -322,7 +342,7 @@ export function mergeBridgeTelemetry(
       status: mapRemoteStatus(remote.status),
       archetype: coerceArchetype(remote.arch, isHq ? 'hq_spire' : 'observatory_dome'),
       isHQ: isHq,
-      avatarUrl: defaultAvatar,
+      avatarUrl: remote.avatar || pickAutoPortrait(remote.id, remote.role, remote.arch),
       model: remote.model || 'combo-best',
       currentTask: remote.task || 'STANDBY',
       sessionsCount: 1,

@@ -98,6 +98,9 @@ test('mergeBridgeTelemetry reconciles real VPS profiles in hybrid and strict mod
     true,
   );
   assert.equal(strict.agents.length, 3);
+  const alphaTrader = strict.agents.find((a) => a.profileKey === 'alpha-trader');
+  assert.ok(alphaTrader?.avatarUrl.startsWith('/src/assets/images/avatar_'));
+  assert.notEqual(alphaTrader?.avatarUrl, hq?.avatarUrl);
   assert.equal(strict.interAgentLogs.length, 1);
   assert.equal(strict.interAgentLogs[0].fromAgentId, 'executor');
 });

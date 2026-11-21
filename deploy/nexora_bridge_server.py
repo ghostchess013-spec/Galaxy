@@ -146,6 +146,19 @@ def validate_agent_slug(agent_id: str, allow_default: bool = True) -> str:
     return slug
 
 
+def validate_avatar_value(raw: Optional[str]) -> str:
+    if not raw:
+        return ""
+    val = raw.strip()
+    if len(val) > 150_000:
+        raise HTTPException(status_code=400, detail="Avatar payload exceeds 150 KB limit")
+    if re.match(r"^/src/assets/images/[a-zA-Z0-9._-]+\.(jpg|jpeg|png|webp)$", val):
+        return val
+    if re.match(r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$", val):
+        return val
+    raise HTTPException(status_code=400, detail="Unsupported avatar image format")
+
+
 def validate_hermes_relpath(raw_path: str) -> str:
     cleaned = raw_path.strip()
     if cleaned.startswith("~/.hermes/"):
@@ -299,6 +312,7 @@ profiles.append({
     'role': default_meta['role'],
     'model': default_meta['model'],
     'arch': 'hq_spire',
+    'avatar': default_meta.get('avatar', ''),
     'soul': default_soul,
     'is_core': True,
     'remote_busy': 'default' in busy_agents,
@@ -313,6 +327,7 @@ if p_root.exists():
             'role': 'Systemd Sentinel & Watchdog' if d.name == 'vps-guardian' else 'Hermes Specialist Agent',
             'model': 'combo-best',
             'arch': 'care_pavilion' if d.name == 'vps-guardian' else 'observatory_dome',
+            'avatar': '',
         }
         if (d / 'nexora_meta.json').exists():
             try:
@@ -326,6 +341,7 @@ if p_root.exists():
             'role': meta['role'],
             'model': meta['model'],
             'arch': meta['arch'],
+            'avatar': meta.get('avatar', ''),
             'soul': soul,
             'is_core': d.name == 'vps-guardian',
             'remote_busy': d.name in busy_agents,
@@ -438,6 +454,11 @@ class CreateAgentReq(BaseModel):
     model: str = "combo-best"
     arch: str = "observatory_dome"
     soul: Optional[str] = None
+    avatar: Optional[str] = None
+
+
+class UpdateAvatarReq(BaseModel):
+    avatar: str
 
 
 class UpdateSoulReq(BaseModel):
@@ -482,8 +503,9 @@ async def get_status():
 async def create_agent(req: CreateAgentReq):
     raw_slug = re.sub(r"[^a-z0-9\-]", "-", req.slug.lower().strip()).strip("-")
     slug = validate_agent_slug(raw_slug, allow_default=False)
+    safe_avatar = validate_avatar_value(req.avatar)
     soul = req.soul or f"# SOUL.md — {slug}\nRole: {req.role}\n"
-    meta = {"role": req.role, "model": req.model, "arch": req.arch}
+    meta = {"role": req.role, "model": req.model, "arch": req.arch, "avatar": safe_avatar}
     py = (
         "import json; from pathlib import Path; "
         f"root = (Path.home() / '.hermes' / 'profiles').resolve(); "
@@ -498,6 +520,37 @@ async def create_agent(req: CreateAgentReq):
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to create profile")
     record_blackbox("default", "FLEET", "DEPLOY_AGENT", f"Created profile '{slug}' at ~/.hermes/profiles/{slug}")
     return {"ok": True, "slug": slug}
+
+
+@app.put("/api/agents/{agent_id}/avatar", dependencies=[Depends(verify_token)])
+async def update_avatar(agent_id: str, req: UpdateAvatarReq):
+    slug = validate_agent_slug(agent_id, allow_default=True)
+    safe_avatar = validate_avatar_value(req.avatar)
+    if slug == "default":
+        py = (
+            "import json; from pathlib import Path; "
+            "fp = Path.home() / '.hermes' / 'nexora_meta.json'; "
+            "meta = json.loads(fp.read_text(encoding='utf-8')) if fp.exists() else {}; "
+            f"meta['avatar'] = {json.dumps(safe_avatar)}; "
+            "fp.write_text(json.dumps(meta), encoding='utf-8')"
+        )
+    else:
+        py = (
+            "import json; from pathlib import Path; "
+            "root = (Path.home() / '.hermes' / 'profiles').resolve(); "
+            f"d = (root / {json.dumps(slug)}).resolve(); "
+            "assert str(d).startswith(str(root) + '/'); "
+            "d.mkdir(parents=True, exist_ok=True); "
+            "fp = d / 'nexora_meta.json'; "
+            "meta = json.loads(fp.read_text(encoding='utf-8')) if fp.exists() else {}; "
+            f"meta['avatar'] = {json.dumps(safe_avatar)}; "
+            "fp.write_text(json.dumps(meta), encoding='utf-8')"
+        )
+    res = await ssh_run_python(py)
+    if not res["ok"]:
+        raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to save avatar")
+    record_blackbox(slug, "CONFIG", "UPDATE_AVATAR", f"Updated portrait ({slug})")
+    return {"ok": True}
 
 
 @app.put("/api/agents/{agent_id}/soul", dependencies=[Depends(verify_token)])

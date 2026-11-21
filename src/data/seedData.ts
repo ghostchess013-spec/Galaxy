@@ -18,7 +18,76 @@ export const AVATARS = {
   developer: '/src/assets/images/avatar_developer_1795234267422.jpg',
   content: '/src/assets/images/avatar_content_1795234267930.jpg',
   data: '/src/assets/images/avatar_data_1795234269028.jpg',
+  guardian: '/src/assets/images/avatar_guardian_1795265201887.jpg',
+  design: '/src/assets/images/avatar_design_1795265160205.jpg',
+  signal: '/src/assets/images/avatar_signal_1795265128937.jpg',
+  ledger: '/src/assets/images/avatar_ledger_1795265180086.jpg',
 } as const;
+
+export const PORTRAIT_GALLERY: ReadonlyArray<{ id: keyof typeof AVATARS; label: string; url: string }> = [
+  { id: 'executor', label: 'Executor', url: AVATARS.executor },
+  { id: 'guardian', label: 'Sentinel', url: AVATARS.guardian },
+  { id: 'developer', label: 'Developer', url: AVATARS.developer },
+  { id: 'research', label: 'Research', url: AVATARS.research },
+  { id: 'data', label: 'Data', url: AVATARS.data },
+  { id: 'design', label: 'Design', url: AVATARS.design },
+  { id: 'content', label: 'Editorial', url: AVATARS.content },
+  { id: 'signal', label: 'Signal', url: AVATARS.signal },
+  { id: 'ledger', label: 'Ledger', url: AVATARS.ledger },
+];
+
+const SPECIALIST_PORTRAIT_POOL: readonly string[] = [
+  AVATARS.guardian,
+  AVATARS.developer,
+  AVATARS.research,
+  AVATARS.data,
+  AVATARS.design,
+  AVATARS.content,
+  AVATARS.signal,
+  AVATARS.ledger,
+];
+
+/**
+ * Deterministically assigns a studio portrait to any Hermes agent profile
+ * based on role/slug keywords or a stable hash across the 8 specialist portraits.
+ */
+export function pickAutoPortrait(profileKey: string, role = '', archetype = ''): string {
+  const slug = profileKey.trim().toLowerCase();
+  if (slug === 'default' || slug === 'executor' || archetype === 'hq_spire') {
+    return AVATARS.executor;
+  }
+  const haystack = `${slug} ${role.toLowerCase()} ${archetype.toLowerCase()}`;
+  if (/(guard|sentinel|sec|firewall|vps|ops|devops|deploy|care_pavilion)/.test(haystack)) {
+    return AVATARS.guardian;
+  }
+  if (/(dev|code|eng|build|script|api|ribbed_tower)/.test(haystack)) {
+    return AVATARS.developer;
+  }
+  if (/(design|ui|ux|creative|art|brand|cantilever_loft)/.test(haystack)) {
+    return AVATARS.design;
+  }
+  if (/(signal|comms|social|seo|telegram|discord|broadcast|outreach|signal_spire)/.test(haystack)) {
+    return AVATARS.signal;
+  }
+  if (/(ledger|fin|cost|budget|deal|treasury|legal|compliance|sales|twin_towers)/.test(haystack)) {
+    return AVATARS.ledger;
+  }
+  if (/(data|sql|metric|quant|qa|verify|memory|archiv|octagonal_citadel)/.test(haystack)) {
+    return AVATARS.data;
+  }
+  if (/(content|write|doc|copy|video|studio|support|media|curved_atelier|stacked_stage)/.test(haystack)) {
+    return AVATARS.content;
+  }
+  if (/(research|scout|intel|recon|search|study|observatory_dome)/.test(haystack)) {
+    return AVATARS.research;
+  }
+
+  let hash = 0;
+  for (let i = 0; i < slug.length; i += 1) {
+    hash = (hash * 31 + slug.charCodeAt(i)) >>> 0;
+  }
+  return SPECIALIST_PORTRAIT_POOL[hash % SPECIALIST_PORTRAIT_POOL.length];
+}
 
 export const INITIAL_AGENTS: Agent[] = [
   {
@@ -141,7 +210,7 @@ export const INITIAL_AGENTS: Agent[] = [
     profileKey: 'signal',
     status: 'idle',
     archetype: 'signal_spire',
-    avatarUrl: AVATARS.research,
+    avatarUrl: AVATARS.signal,
     model: '9router / gemini-2.5-flash',
     currentTask: 'Monitoring Telegram topics & Discord alert webhooks',
     sessionsCount: 31,
@@ -163,7 +232,7 @@ export const INITIAL_AGENTS: Agent[] = [
     profileKey: 'design',
     status: 'idle',
     archetype: 'cantilever_loft',
-    avatarUrl: AVATARS.content,
+    avatarUrl: AVATARS.design,
     model: '9router / claude-sonnet-4',
     currentTask: 'Auditing token contrast & mobile layout ergonomics',
     sessionsCount: 14,
@@ -185,7 +254,7 @@ export const INITIAL_AGENTS: Agent[] = [
     profileKey: 'ledger',
     status: 'idle',
     archetype: 'stepped_ziggurat',
-    avatarUrl: AVATARS.data,
+    avatarUrl: AVATARS.ledger,
     model: '9router / gpt-4.1-mini',
     currentTask: 'Tracking 9Router monthly token spend & Oracle PAYG quota',
     sessionsCount: 17,
@@ -229,7 +298,7 @@ export const INITIAL_AGENTS: Agent[] = [
     profileKey: 'deal',
     status: 'idle',
     archetype: 'twin_towers',
-    avatarUrl: AVATARS.executor,
+    avatarUrl: AVATARS.ledger,
     model: '9router / claude-sonnet-4',
     currentTask: 'Drafting partner outreach matrix for Q4 sprint',
     sessionsCount: 11,
@@ -251,7 +320,7 @@ export const INITIAL_AGENTS: Agent[] = [
     profileKey: 'vps-guardian',
     status: 'working',
     archetype: 'care_pavilion',
-    avatarUrl: AVATARS.developer,
+    avatarUrl: AVATARS.guardian,
     model: '9router / gemini-2.5-flash',
     currentTask: 'Watching hermesagent (100.72.221.36) RAM, Tailscale & ports',
     sessionsCount: 41,
@@ -297,7 +366,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'Security & Firewall Auditor',
     department: 'Security',
     archetype: 'octagonal_citadel',
-    avatarUrl: AVATARS.developer,
+    avatarUrl: AVATARS.guardian,
     model: '9router / claude-sonnet-4',
     description: 'Audits iptables rules, SSH keys, Tailscale ACLs, and token rotation hygiene.',
     tools: ['ssh_audit', 'acl_verify', 'port_inspect'],
@@ -336,7 +405,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'SEO & Discovery Strategist',
     department: 'Growth',
     archetype: 'signal_spire',
-    avatarUrl: AVATARS.research,
+    avatarUrl: AVATARS.signal,
     model: '9router / gemini-2.5-pro',
     description: 'Maps keyword intent, technical metadata, and organic content clusters.',
     tools: ['serp_scan', 'schema_check', 'content_gap'],
@@ -349,7 +418,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'Growth & Marketing Lead',
     department: 'Growth',
     archetype: 'twin_towers',
-    avatarUrl: AVATARS.content,
+    avatarUrl: AVATARS.design,
     model: '9router / claude-sonnet-4',
     description: 'Builds launch playbooks, positioning angles, and audience experiments.',
     tools: ['campaign_plan', 'copy_test', 'funnel_read'],
@@ -362,7 +431,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'Product Strategist',
     department: 'Product',
     archetype: 'cantilever_loft',
-    avatarUrl: AVATARS.executor,
+    avatarUrl: AVATARS.design,
     model: '9router / claude-sonnet-4',
     description: 'Translates operator goals into crisp PRDs, user stories, and prioritized roadmaps.',
     tools: ['prd_draft', 'spec_review', 'backlog_sort'],
@@ -375,7 +444,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'Policy & Contract Analyst',
     department: 'Governance',
     archetype: 'stepped_ziggurat',
-    avatarUrl: AVATARS.data,
+    avatarUrl: AVATARS.ledger,
     model: '9router / claude-sonnet-4',
     description: 'Reviews terms, privacy disclosures, and licensing obligations on third-party tools.',
     tools: ['clause_scan', 'license_audit', 'risk_memo'],
@@ -427,7 +496,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'Script & Video Producer',
     department: 'Media',
     archetype: 'stacked_stage',
-    avatarUrl: AVATARS.content,
+    avatarUrl: AVATARS.design,
     model: '9router / claude-sonnet-4',
     description: 'Writes tight visual storyboards, shot lists, and narrated demo scripts.',
     tools: ['script_draft', 'beat_sheet', 'caption_gen'],
@@ -440,7 +509,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'Social & Community Lead',
     department: 'Communications',
     archetype: 'curved_atelier',
-    avatarUrl: AVATARS.content,
+    avatarUrl: AVATARS.signal,
     model: '9router / claude-sonnet-4',
     description: 'Adapts long-form docs into clear threads, community digests, and release notes.',
     tools: ['thread_draft', 'digest_pack', 'reply_queue'],
@@ -453,7 +522,7 @@ export const ROLE_PRESETS: RolePreset[] = [
     role: 'Financial Modeler',
     department: 'Finance',
     archetype: 'twin_towers',
-    avatarUrl: AVATARS.data,
+    avatarUrl: AVATARS.ledger,
     model: '9router / gpt-4.1',
     description: 'Models unit economics, cloud cost scenarios, and monthly burn forecasts.',
     tools: ['sheet_model', 'cost_sim', 'variance_check'],
@@ -1056,7 +1125,7 @@ export const DEFAULT_SETTINGS: OperatorSettings = {
   bridgeMode: 'demo',
   bridgeUrl: 'http://100.85.109.20:9120',
   bridgeToken: '',
-  showOnlyVpsAgents: false,
+  showOnlyVpsAgents: true,
   dashboardPinEnabled: false,
   dashboardPin: '4820',
 };
