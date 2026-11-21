@@ -340,18 +340,24 @@ export function mergeBridgeTelemetry(
   currentAgents: Agent[],
   currentChecks: HealthCheck[],
   showOnlyVpsAgents: boolean,
+  excludedProfileKeys?: ReadonlySet<string>,
 ): {
   agents: Agent[];
   healthChecks: HealthCheck[];
   interAgentLogs: InterAgentLog[];
 } {
-  const remoteByProfile = new Map(telemetry.agents.map((ra) => [ra.id, ra]));
+  const isExcluded = (key: string): boolean => Boolean(excludedProfileKeys?.has(key));
+  const activeRemoteAgents = telemetry.agents.filter((ra) => !isExcluded(ra.id));
+  const remoteByProfile = new Map(activeRemoteAgents.map((ra) => [ra.id, ra]));
 
   const updatedAgents: Agent[] = [];
   const matchedRemoteIds = new Set<string>();
 
   for (const existing of currentAgents) {
     const matchKey = existing.isHQ ? 'default' : existing.profileKey;
+    if (isExcluded(matchKey) || isExcluded(existing.id)) {
+      continue;
+    }
     const remote = remoteByProfile.get(matchKey);
 
     if (remote) {
@@ -369,7 +375,7 @@ export function mergeBridgeTelemetry(
     }
   }
 
-  for (const remote of telemetry.agents) {
+  for (const remote of activeRemoteAgents) {
     if (matchedRemoteIds.has(remote.id)) continue;
     const isHq = remote.id === 'default';
     updatedAgents.push({

@@ -96,8 +96,10 @@ blackbox_logs: List[Dict[str, Any]] = []
 pending_approvals: Dict[str, Dict[str, Any]] = {}
 ws_clients: Set[WebSocket] = set()
 _chat_ctx_cache: Dict[str, Dict[str, Any]] = {}
+_recently_deleted_profiles: Dict[str, float] = {}
 _preferred_router_key: str = ""
 CHAT_CTX_TTL_SEC = 180.0
+DELETED_PROFILE_GRACE_SEC = 15.0
 
 
 def utc_now() -> str:
@@ -498,9 +500,16 @@ async def collect_telemetry() -> Dict[str, Any]:
     down_svcs = [s["name"] for s in remote["services"] if not s["healthy"]]
     vps_alert = remote["cpu"]["percent"] > 88.0 or remote["ram"]["percent"] > 92.0 or len(down_svcs) > 0
 
+    now_ts = time.time()
+    expired_deleted = [k for k, exp in _recently_deleted_profiles.items() if exp <= now_ts]
+    for k in expired_deleted:
+        _recently_deleted_profiles.pop(k, None)
+
     agents = []
     for p in remote["profiles"]:
         slug = p["id"]
+        if slug in _recently_deleted_profiles:
+            continue
         has_hitl = any(a["agent"] == slug for a in pending_approvals.values())
         if has_hitl or (slug == "vps-guardian" and vps_alert):
             p["status"] = "ALERT"
@@ -645,7 +654,9 @@ async def create_agent(req: CreateAgentReq):
     res = await ssh_run_python(py)
     if not res["ok"]:
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to create profile")
+    _recently_deleted_profiles.pop(slug, None)
     record_blackbox("default", "FLEET", "DEPLOY_AGENT", f"Created profile '{slug}' at ~/.hermes/profiles/{slug}")
+    asyncio.create_task(_broadcast_fresh_telemetry())
     return {"ok": True, "slug": slug}
 
 
@@ -704,23 +715,53 @@ async def update_soul(agent_id: str, req: UpdateSoulReq):
     return {"ok": True}
 
 
+async def _broadcast_fresh_telemetry() -> None:
+    if not ws_clients:
+        return
+    try:
+        data = await collect_telemetry()
+        dead: List[WebSocket] = []
+        for client in list(ws_clients):
+            try:
+                await client.send_json({"type": "telemetry", "data": data})
+            except Exception:
+                dead.append(client)
+        for client in dead:
+            ws_clients.discard(client)
+    except Exception:
+        pass
+
+
 @app.delete("/api/agents/{agent_id}", dependencies=[Depends(verify_token)])
 async def delete_agent(agent_id: str):
     slug = validate_agent_slug(agent_id, allow_default=True)
     if slug in ("default", "vps-guardian"):
         raise HTTPException(status_code=400, detail="Core profiles cannot be deleted")
+
+    # Immediately suppress in-flight telemetry probes from re-emitting this slug while SSH rmtree runs
+    _recently_deleted_profiles[slug] = time.time() + DELETED_PROFILE_GRACE_SEC
+    active_tasks.pop(slug, None)
+    _chat_ctx_cache.pop(slug, None)
+
     py = (
-        "import shutil; from pathlib import Path; "
-        "root = (Path.home() / '.hermes' / 'profiles').resolve(); "
-        f"target = (root / {json.dumps(slug)}).resolve(); "
-        "assert str(target).startswith(str(root) + '/'); "
-        "shutil.rmtree(target, ignore_errors=True)"
+        "import shutil, subprocess\n"
+        "from pathlib import Path\n"
+        "root = (Path.home() / '.hermes' / 'profiles').resolve()\n"
+        f"target = (root / {json.dumps(slug)}).resolve()\n"
+        "assert str(target).startswith(str(root) + '/')\n"
+        "if target.exists():\n"
+        "    shutil.rmtree(target, ignore_errors=True)\n"
+        "if target.exists():\n"
+        "    subprocess.run(['rm', '-rf', str(target)], check=False)\n"
+        "assert not target.exists(), f'Profile directory still exists: {target}'\n"
     )
     res = await ssh_run_python(py)
     if not res["ok"]:
+        _recently_deleted_profiles.pop(slug, None)
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to remove profile")
     record_blackbox("default", "FLEET", "DECOMMISSION", f"Deleted profile '{slug}'", level="WARN")
-    return {"ok": True}
+    asyncio.create_task(_broadcast_fresh_telemetry())
+    return {"ok": True, "slug": slug}
 
 
 @app.get("/api/files", dependencies=[Depends(verify_token)])

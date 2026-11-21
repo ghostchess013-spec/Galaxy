@@ -1,10 +1,12 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   BedDouble,
   Camera,
   ChevronDown,
   ChevronUp,
   Compass,
+  Crosshair,
   Layers,
   Maximize2,
   MessageSquare,
@@ -305,7 +307,7 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
             value={chatDraft}
             onChange={(e) => setChatDraft(e.target.value)}
             placeholder={`Chat dengan ${selectedAgent.name}...`}
-            className="flex-1 min-w-0 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
+            className="flex-1 min-w-0 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 text-[16px] sm:text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
           />
           <button
             type="submit"
@@ -356,6 +358,7 @@ const AgentCityView = memo(function AgentCityView({
   onOpenAsk,
 }: AgentCityViewProps) {
   const [portraitModalOpen, setPortraitModalOpen] = useState(false);
+  const [deleteConfirmAgent, setDeleteConfirmAgent] = useState<Agent | null>(null);
   const [avatarError, setAvatarError] = useState<string>('');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(
     () => typeof window !== 'undefined' && window.innerWidth < 768,
@@ -368,6 +371,17 @@ const AgentCityView = memo(function AgentCityView({
     mode: OfficeCameraPreset;
     nonce: number;
   }>({ mode: 'overview', nonce: 0 });
+
+  useEffect(() => {
+    if (!deleteConfirmAgent) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDeleteConfirmAgent(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [deleteConfirmAgent]);
 
   const handleCloseChat = useCallback(() => {
     setChatDrawerOpen(false);
@@ -403,11 +417,11 @@ const AgentCityView = memo(function AgentCityView({
       {/* Header & 4-KPI Office Telemetry Strip */}
       <div className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] px-5 py-3.5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
+          <div className="min-w-[230px] sm:min-w-[295px]">
             <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
               GALAXY / 3D AI Agent Office · 2 Lantai
             </p>
-            <h1 className="font-editorial text-2xl sm:text-3xl leading-tight mt-0.5 text-[var(--nx-text)]">
+            <h1 className="font-editorial text-2xl sm:text-3xl leading-tight mt-0.5 text-[var(--nx-text)] whitespace-nowrap">
               Your office is{' '}
               <span className="italic text-[var(--nx-accent)]">
                 {workingCount > 0 ? 'alive.' : 'relaxing.'}
@@ -553,6 +567,16 @@ const AgentCityView = memo(function AgentCityView({
                     </button>
                     <button
                       type="button"
+                      onClick={() =>
+                        setCameraPreset((prev) => ({ mode: 'focus', nonce: prev.nonce + 1 }))
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
+                    >
+                      <Crosshair className="h-3 w-3" />
+                      <span>Focus</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setFloorView('floor1');
                         setCameraPreset((prev) => ({ mode: 'meeting', nonce: prev.nonce + 1 }));
@@ -678,12 +702,13 @@ const AgentCityView = memo(function AgentCityView({
                       <span>Brief</span>
                     </button>
 
-                    {!selectedAgent.isHQ && (
+                    {!selectedAgent.isHQ && selectedAgent.profileKey !== 'vps-guardian' && (
                       <button
                         type="button"
-                        onClick={() => onRetireSpecialist(selectedAgent.id)}
+                        onClick={() => setDeleteConfirmAgent(selectedAgent)}
                         className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-alert)]/40 px-2 py-1.5 text-xs font-medium text-[var(--nx-alert)] hover:bg-[var(--nx-alert)]/15 whitespace-nowrap transition-colors cursor-pointer"
-                        aria-label={`Retire ${selectedAgent.name}`}
+                        aria-label={`Hapus agent ${selectedAgent.name}`}
+                        title={`Hapus agent ${selectedAgent.name}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -792,6 +817,100 @@ const AgentCityView = memo(function AgentCityView({
               </button>
             </div>
             {avatarError && <p className="text-xs text-[var(--nx-alert)]">{avatarError}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Approval Confirmation Dialog Before Deleting an Agent */}
+      {deleteConfirmAgent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="delete-agent-confirm-title"
+          aria-describedby="delete-agent-confirm-desc"
+          onClick={() => setDeleteConfirmAgent(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-[var(--nx-alert)]/40 bg-[var(--nx-bg-elevated)] p-6 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--nx-alert)]/40 bg-[var(--nx-alert)]/12 text-[var(--nx-alert)]">
+                  <AlertTriangle className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-alert)] font-semibold">
+                    Persetujuan Penghapusan
+                  </p>
+                  <h2
+                    id="delete-agent-confirm-title"
+                    className="font-editorial text-2xl mt-0.5 text-[var(--nx-text)]"
+                  >
+                    Hapus <span className="italic text-[var(--nx-alert)]">{deleteConfirmAgent.name}?</span>
+                  </h2>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmAgent(null)}
+                aria-label="Tutup dialog konfirmasi hapus"
+                className="rounded-lg p-1.5 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-3">
+              <img
+                src={deleteConfirmAgent.avatarUrl}
+                alt={deleteConfirmAgent.name}
+                referrerPolicy="no-referrer"
+                className="h-11 w-11 rounded-full object-cover object-top border border-[var(--nx-border-strong)] shrink-0"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--nx-text)] truncate">
+                  {deleteConfirmAgent.name}
+                </p>
+                <p className="text-xs text-[var(--nx-text-muted)] truncate">
+                  {deleteConfirmAgent.role}
+                </p>
+                <p className="font-mono text-[10px] text-[var(--nx-text-subtle)] truncate mt-0.5">
+                  ~/.hermes/profiles/{deleteConfirmAgent.profileKey}
+                </p>
+              </div>
+            </div>
+
+            <p
+              id="delete-agent-confirm-desc"
+              className="text-xs leading-relaxed text-[var(--nx-text-muted)]"
+            >
+              Tindakan ini akan menghapus profil agent di Hermes, meja kerjanya di Lantai 1, kasurnya di
+              Lantai 2, serta riwayat chat lokalnya dari dashboard. Pastikan Anda tidak salah tekan.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[var(--nx-border)]">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmAgent(null)}
+                className="rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-4 py-2 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = deleteConfirmAgent.id;
+                  setDeleteConfirmAgent(null);
+                  onRetireSpecialist(targetId);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-alert)] px-4 py-2 text-xs font-semibold text-white hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Ya, Hapus Agent</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

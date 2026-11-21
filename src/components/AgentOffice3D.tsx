@@ -888,7 +888,7 @@ const OfficeViewport = memo(
   }: OfficeViewportProps) {
     return (
       <div
-        className="relative w-full h-full overflow-hidden select-none [contain:layout_style]"
+        className="relative w-full h-full overflow-hidden select-none touch-none [contain:layout_style]"
         data-testid="agent-office-3d"
         data-agent-count={agents.length}
       >
@@ -919,7 +919,7 @@ const OfficeViewport = memo(
                 }}
                 type="button"
                 onClick={() => onClickAgent(agent.id)}
-                className="pointer-events-auto absolute top-0 left-0 flex flex-col items-center gap-0.5 cursor-pointer will-change-transform focus-visible:outline-2 focus-visible:outline-offset-2"
+                className="pointer-events-auto touch-none absolute top-0 left-0 flex flex-col items-center gap-0.5 cursor-pointer will-change-transform focus-visible:outline-2 focus-visible:outline-offset-2"
                 aria-label={`Inspect ${agent.name}`}
               >
                 <div
@@ -1043,7 +1043,6 @@ const AgentOffice3D = memo(function AgentOffice3D({
 
   const handleClickAgent = useCallback((agentId: string) => {
     onSelectRef.current(agentId);
-    sceneApiRef.current?.focusAgent(agentId);
   }, []);
 
   useEffect(() => {
@@ -1124,7 +1123,8 @@ const AgentOffice3D = memo(function AgentOffice3D({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = !isSoftwareGl;
-    controls.dampingFactor = 0.06;
+    controls.dampingFactor = 0.08;
+    controls.zoomSpeed = 0.78;
     controls.minDistance = 8.5;
     controls.maxDistance = 48;
     controls.minPolarAngle = 0.18;
@@ -1133,9 +1133,13 @@ const AgentOffice3D = memo(function AgentOffice3D({
     controls.update();
 
     let transitioningCamera = false;
-    controls.addEventListener('start', () => {
+    let transitionStartedAt = 0;
+    const cancelCameraTransition = () => {
       transitioningCamera = false;
-    });
+    };
+    controls.addEventListener('start', cancelCameraTransition);
+    renderer.domElement.addEventListener('wheel', cancelCameraTransition, { passive: true });
+    renderer.domElement.addEventListener('touchstart', cancelCameraTransition, { passive: true });
 
     const staticGroup = new THREE.Group();
     const floor2StaticGroup = new THREE.Group();
@@ -1196,10 +1200,10 @@ const AgentOffice3D = memo(function AgentOffice3D({
     const oakMat = sMat(new THREE.MeshStandardMaterial({ color: 0xa67c52, roughness: 0.58, metalness: 0.05 }));
     const darkSteelMat = sMat(new THREE.MeshStandardMaterial({ color: 0x1b1c20, roughness: 0.34, metalness: 0.68 }));
     const glassMat = sMat(
-      new THREE.MeshPhysicalMaterial({
+      new THREE.MeshStandardMaterial({
         color: 0xdbeafe,
-        roughness: 0.08,
-        metalness: 0.05,
+        roughness: 0.12,
+        metalness: 0.1,
         transparent: true,
         opacity: 0.24,
         depthWrite: false,
@@ -2024,7 +2028,12 @@ const AgentOffice3D = memo(function AgentOffice3D({
       }
     };
 
-    const applyFloorView = (mode: OfficeFloorView) => {
+    const startCameraTransition = () => {
+      transitioningCamera = true;
+      transitionStartedAt = performance.now();
+    };
+
+    const applyFloorView = (mode: OfficeFloorView, animateCamera = true) => {
       floorViewRef.current = mode;
       const showFloor2 = mode === 'all' || mode === 'floor2';
       floor2StaticGroup.visible = showFloor2;
@@ -2033,18 +2042,20 @@ const AgentOffice3D = memo(function AgentOffice3D({
         renderer.shadowMap.needsUpdate = true;
       }
 
+      if (!animateCamera) return;
+
       if (mode === 'floor2') {
         _targetLookAt.set(0, FLOOR2_Y + 0.8, -3.2);
         _targetCamPos.set(0, FLOOR2_Y + 11.2, 14.5);
-        transitioningCamera = true;
+        startCameraTransition();
       } else if (mode === 'floor1') {
         _targetLookAt.set(0, 1.0, 0.2);
         _targetCamPos.set(0, 15.8, 22.8);
-        transitioningCamera = true;
+        startCameraTransition();
       } else {
         _targetLookAt.copy(defaultLookAt);
         _targetCamPos.copy(defaultCamPos);
-        transitioningCamera = true;
+        startCameraTransition();
       }
     };
 
@@ -2052,7 +2063,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
       if (!agentId) {
         _targetLookAt.copy(defaultLookAt);
         _targetCamPos.copy(defaultCamPos);
-        transitioningCamera = true;
+        startCameraTransition();
         return;
       }
       const rt = runtimes.find((r) => r.agentId === agentId);
@@ -2063,7 +2074,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
       }
       _targetLookAt.set(rt.currentPos.x, rt.currentPos.y + 1.15, rt.currentPos.z);
       _targetCamPos.set(rt.currentPos.x + 2.4, rt.currentPos.y + 5.4, rt.currentPos.z + 8.2);
-      transitioningCamera = true;
+      startCameraTransition();
     };
 
     const setCameraPreset = (mode: OfficeCameraPreset) => {
@@ -2089,11 +2100,11 @@ const AgentOffice3D = memo(function AgentOffice3D({
         _targetLookAt.copy(defaultLookAt);
         _targetCamPos.copy(defaultCamPos);
       }
-      transitioningCamera = true;
+      startCameraTransition();
     };
 
     rebuildDynamicFleet(agentsRef.current);
-    applyFloorView(floorViewRef.current);
+    applyFloorView(floorViewRef.current, false);
 
     if (!isSoftwareGl) {
       renderer.compile(scene, camera);
@@ -2101,17 +2112,33 @@ const AgentOffice3D = memo(function AgentOffice3D({
 
     sceneApiRef.current = { rebuildDynamicFleet, applyTheme, applyFloorView, focusAgent, setCameraPreset };
 
-    // Raycasting pointer click
+    // Raycasting pointer click (strictly ignores multi-touch pinch-to-zoom gestures and never hijacks zoom on single tap)
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const activePointers = new Set<number>();
+    let wasMultiTouch = false;
     let downX = 0;
     let downY = 0;
+    let lastTapId = '';
+    let lastTapAt = 0;
 
     const onPointerDown = (e: PointerEvent) => {
+      transitioningCamera = false;
+      activePointers.add(e.pointerId);
+      if (activePointers.size > 1) {
+        wasMultiTouch = true;
+        return;
+      }
+      wasMultiTouch = false;
       downX = e.clientX;
       downY = e.clientY;
     };
     const onPointerUp = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId);
+      if (wasMultiTouch || activePointers.size > 0) {
+        if (activePointers.size === 0) wasMultiTouch = false;
+        return;
+      }
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -2122,19 +2149,34 @@ const AgentOffice3D = memo(function AgentOffice3D({
         const hitId = hits[0].object.userData.agentId as string | undefined;
         if (hitId) {
           onSelectRef.current(hitId);
-          focusAgent(hitId);
+          const now = performance.now();
+          if (hitId === lastTapId && now - lastTapAt < 380) {
+            focusAgent(hitId);
+            lastTapId = '';
+            lastTapAt = 0;
+          } else {
+            lastTapId = hitId;
+            lastTapAt = now;
+          }
         }
       }
+    };
+    const onPointerCancel = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) wasMultiTouch = false;
     };
 
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onPointerCancel);
 
     const onContextLost = (ev: Event) => ev.preventDefault();
     renderer.domElement.addEventListener('webglcontextlost', onContextLost);
 
     let viewportW = width;
     let viewportH = height;
+    let pendingResizeW: number | null = null;
+    let pendingResizeH: number | null = null;
 
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -2142,13 +2184,9 @@ const AgentOffice3D = memo(function AgentOffice3D({
       const ch = entry ? entry.contentRect.height : container.clientHeight;
       const w = Math.max(Math.round(cw), 320);
       const h = Math.max(Math.round(ch), 260);
-      if (Math.abs(w - viewportW) < 2 && Math.abs(h - viewportH) < 2) return;
-      viewportW = w;
-      viewportH = h;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h, false);
-      renderer.render(scene, camera);
+      if (Math.abs(w - viewportW) < 4 && Math.abs(h - viewportH) < 4) return;
+      pendingResizeW = w;
+      pendingResizeH = h;
     });
     resizeObserver.observe(container);
 
@@ -2194,18 +2232,32 @@ const AgentOffice3D = memo(function AgentOffice3D({
       const dt = smoothedDt;
       const elapsed = (nowMs - startMs) / 1000;
 
+      // Apply coalesced viewport resize cleanly inside rAF (never synchronously inside ResizeObserver)
+      if (pendingResizeW !== null && pendingResizeH !== null) {
+        viewportW = pendingResizeW;
+        viewportH = pendingResizeH;
+        pendingResizeW = null;
+        pendingResizeH = null;
+        camera.aspect = viewportW / viewportH;
+        camera.updateProjectionMatrix();
+        renderer.setSize(viewportW, viewportH, false);
+      }
+
       // Subtle ticking wall clock
       clockMinuteHand.rotation.z = -elapsed * 0.25;
 
       if (transitioningCamera) {
-        const dampLambda = 4.5;
+        const dampLambda = 4.8;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, _targetCamPos.x, dampLambda, dt);
         camera.position.y = THREE.MathUtils.damp(camera.position.y, _targetCamPos.y, dampLambda, dt);
         camera.position.z = THREE.MathUtils.damp(camera.position.z, _targetCamPos.z, dampLambda, dt);
         controls.target.x = THREE.MathUtils.damp(controls.target.x, _targetLookAt.x, dampLambda, dt);
         controls.target.y = THREE.MathUtils.damp(controls.target.y, _targetLookAt.y, dampLambda, dt);
         controls.target.z = THREE.MathUtils.damp(controls.target.z, _targetLookAt.z, dampLambda, dt);
-        if (camera.position.distanceTo(_targetCamPos) < 0.08) {
+        const arrived =
+          camera.position.distanceTo(_targetCamPos) < 0.08 &&
+          controls.target.distanceTo(_targetLookAt) < 0.08;
+        if (arrived || nowMs - transitionStartedAt > 1600) {
           transitioningCamera = false;
         }
       }
@@ -2516,8 +2568,12 @@ const AgentOffice3D = memo(function AgentOffice3D({
       cancelAnimationFrame(frameId);
       clearTimeout(timerId);
       resizeObserver.disconnect();
+      controls.removeEventListener('start', cancelCameraTransition);
+      renderer.domElement.removeEventListener('wheel', cancelCameraTransition);
+      renderer.domElement.removeEventListener('touchstart', cancelCameraTransition);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onPointerCancel);
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
       controls.dispose();
       clearDynamic();
@@ -2540,14 +2596,17 @@ const AgentOffice3D = memo(function AgentOffice3D({
     sceneApiRef.current?.applyTheme(theme);
   }, [theme]);
 
-  // Floor visibility transitions
+  // Floor visibility transitions (skip initial mount so user's camera is never needlessly animated)
+  const prevFloorViewRef = useRef<OfficeFloorView>(floorView);
   useEffect(() => {
+    if (prevFloorViewRef.current === floorView) return;
+    prevFloorViewRef.current = floorView;
     sceneApiRef.current?.applyFloorView(floorView);
   }, [floorView]);
 
-  // Smooth camera preset transitions
+  // Smooth camera preset transitions (ignore nonce === 0 initial mount state)
   useEffect(() => {
-    if (!cameraPresetTrigger) return;
+    if (!cameraPresetTrigger || cameraPresetTrigger.nonce === 0) return;
     sceneApiRef.current?.setCameraPreset(cameraPresetTrigger.mode);
   }, [cameraPresetTrigger]);
 

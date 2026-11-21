@@ -109,3 +109,26 @@ test('normalizeBridgeBaseUrl trims trailing slashes cleanly', () => {
   assert.equal(normalizeBridgeBaseUrl('http://100.85.109.20:9120///'), 'http://100.85.109.20:9120');
   assert.equal(normalizeBridgeBaseUrl('   '), '');
 });
+
+test('mergeBridgeTelemetry suppresses tombstoned deleted profiles from stale in-flight snapshots', () => {
+  const excluded = new Set(['alpha-trader', 'vps-alpha-trader']);
+  const strict = mergeBridgeTelemetry(
+    SAMPLE_TELEMETRY,
+    INITIAL_AGENTS,
+    INITIAL_HEALTH_CHECKS,
+    true,
+    excluded,
+  );
+  assert.equal(strict.agents.length, 2);
+  assert.equal(strict.agents.some((a) => a.profileKey === 'alpha-trader'), false);
+
+  const hybrid = mergeBridgeTelemetry(
+    SAMPLE_TELEMETRY,
+    INITIAL_AGENTS,
+    INITIAL_HEALTH_CHECKS,
+    false,
+    excluded,
+  );
+  assert.equal(hybrid.agents.some((a) => a.profileKey === 'alpha-trader'), false);
+});
+

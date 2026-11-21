@@ -96,6 +96,43 @@ import {
 } from './services/nexoraBridge';
 
 const STORAGE_KEY = 'nexora_mission_control_v3';
+const DELETED_TOMBSTONE_KEY = 'galaxy_deleted_agents_v1';
+const DELETED_TOMBSTONE_TTL_MS = 25000;
+
+function loadActiveDeletedTombstones(): Record<string, number> {
+  try {
+    const raw = window.localStorage.getItem(DELETED_TOMBSTONE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    const now = Date.now();
+    const active: Record<string, number> = {};
+    for (const [k, exp] of Object.entries(parsed)) {
+      if (typeof exp === 'number' && exp > now) {
+        active[k] = exp;
+      }
+    }
+    return active;
+  } catch {
+    return {};
+  }
+}
+
+function saveDeletedTombstones(map: Record<string, number>): void {
+  try {
+    const now = Date.now();
+    const active: Record<string, number> = {};
+    for (const [k, exp] of Object.entries(map)) {
+      if (exp > now) active[k] = exp;
+    }
+    if (Object.keys(active).length === 0) {
+      window.localStorage.removeItem(DELETED_TOMBSTONE_KEY);
+    } else {
+      window.localStorage.setItem(DELETED_TOMBSTONE_KEY, JSON.stringify(active));
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+}
 
 interface PersistedState {
   agents: Agent[];
@@ -110,12 +147,18 @@ interface PersistedState {
 }
 
 function loadInitialState(): PersistedState {
+  const activeTombstones = loadActiveDeletedTombstones();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) throw new Error('empty');
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    const filteredAgents = parsed.agents?.length
+      ? parsed.agents.filter(
+          (a) => !activeTombstones[a.id] && !activeTombstones[a.profileKey],
+        )
+      : INITIAL_AGENTS;
     return {
-      agents: parsed.agents?.length ? parsed.agents : INITIAL_AGENTS,
+      agents: filteredAgents.length ? filteredAgents : INITIAL_AGENTS,
       missions: parsed.missions?.length ? parsed.missions : INITIAL_MISSIONS,
       chats: parsed.chats ?? INITIAL_CHATS,
       docs: parsed.docs?.length ? parsed.docs : INITIAL_DOCS,
@@ -284,12 +327,19 @@ export default function App() {
   const chatRevertTimersRef = useRef<Record<string, number>>({});
   const chatPrevStateRef = useRef<Record<string, { status: AgentStatus; currentTask: string }>>({});
   const chatWorkingLockRef = useRef<Record<string, { task: string; untilMs: number }>>({});
+  const deletedAgentTombstonesRef = useRef<Record<string, number>>(loadActiveDeletedTombstones());
   const latestTelemetryRef = useRef<BridgeTelemetry | null>(null);
   const latestHealthChecksRef = useRef<HealthCheck[] | null>(null);
   const latestInterAgentLogsRef = useRef<InterAgentLog[] | null>(null);
   const sectionRef = useRef<NavSection>(section);
   const agentsRef = useRef<Agent[]>(agents);
+  const missionsRef = useRef<Mission[]>(missions);
   const chatsRef = useRef<Record<string, ChatMessage[]>>(chats);
+  const docsRef = useRef<DocItem[]>(docs);
+  const cronsRef = useRef<CronJob[]>(crons);
+  const filesRef = useRef<WorkspaceFile[]>(files);
+  const integrationsRef = useRef<IntegrationService[]>(integrations);
+  const interAgentLogsRef = useRef<InterAgentLog[]>(interAgentLogs);
   const settingsRef = useRef<OperatorSettings>(settings);
   const bridgeStatusRef = useRef<BridgeConnectionStatus>(bridgeStatus);
   const sessionTokenRef = useRef<string>(sessionToken);
@@ -299,11 +349,58 @@ export default function App() {
 
   sectionRef.current = section;
   agentsRef.current = agents;
+  missionsRef.current = missions;
   chatsRef.current = chats;
+  docsRef.current = docs;
+  cronsRef.current = crons;
+  filesRef.current = files;
+  integrationsRef.current = integrations;
+  interAgentLogsRef.current = interAgentLogs;
   settingsRef.current = settings;
   bridgeStatusRef.current = bridgeStatus;
   sessionTokenRef.current = sessionToken;
   hasBridgeAuthRef.current = hasBridgeAuth;
+
+  const getActiveExcludedProfileSet = useCallback((): Set<string> => {
+    const now = Date.now();
+    const map = deletedAgentTombstonesRef.current;
+    let changed = false;
+    const set = new Set<string>();
+    for (const [key, exp] of Object.entries(map)) {
+      if (exp > now) {
+        set.add(key);
+      } else {
+        delete map[key];
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveDeletedTombstones(map);
+    }
+    return set;
+  }, []);
+
+  const flushWorkspaceSnapshotNow = useCallback((overrides?: Partial<PersistedState>) => {
+    try {
+      const payload: PersistedState = {
+        agents: overrides?.agents ?? agentsRef.current,
+        missions: overrides?.missions ?? missionsRef.current,
+        chats: overrides?.chats ?? chatsRef.current,
+        docs: overrides?.docs ?? docsRef.current,
+        crons: overrides?.crons ?? cronsRef.current,
+        files: overrides?.files ?? filesRef.current,
+        integrations: overrides?.integrations ?? integrationsRef.current,
+        interAgentLogs: overrides?.interAgentLogs ?? interAgentLogsRef.current,
+        settings: {
+          ...(overrides?.settings ?? settingsRef.current),
+          bridgeToken: '',
+        },
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, []);
 
   // Flush latest buffered telemetry/logs when leaving 3D Agent Office for Cockpit or Health
   useEffect(() => {
@@ -446,11 +543,13 @@ export default function App() {
               }
               startTransition(() => {
                 setAgents((prevAgents) => {
+                  const excluded = getActiveExcludedProfileSet();
                   const merged = mergeBridgeTelemetry(
                     snap,
                     prevAgents,
                     INITIAL_HEALTH_CHECKS,
                     settings.showOnlyVpsAgents,
+                    excluded,
                   );
                   latestHealthChecksRef.current = merged.healthChecks;
                   if (merged.interAgentLogs.length > 0) {
@@ -710,7 +809,12 @@ export default function App() {
       customBuilding,
       customAvatarUrl,
     );
+    delete deletedAgentTombstonesRef.current[hired.id];
+    delete deletedAgentTombstonesRef.current[hired.profileKey];
+    saveDeletedTombstones(deletedAgentTombstonesRef.current);
+
     setAgents(nextAgents);
+    flushWorkspaceSnapshotNow({ agents: nextAgents });
     setSelectedAgentId(hired.id);
     pushInterAgentLog(
       'executor',
@@ -719,7 +823,7 @@ export default function App() {
       `Constructed ${hired.buildingName} and onboarded ${hired.name} (${hired.role}).`,
     );
 
-    if (bridgeStatus === 'live' && hasBridgeAuth) {
+    if (settings.bridgeMode === 'live' && hasBridgeAuth) {
       void createBridgeAgent(settings.bridgeUrl, sessionToken, {
         slug: hired.profileKey,
         role: hired.role,
@@ -731,14 +835,19 @@ export default function App() {
         .then(() => fetchBridgeStatus(settings.bridgeUrl, sessionToken))
         .then((fresh) => setLiveTelemetry(fresh))
         .catch(() => {
-          // Optimistic tower stays visible; next WS sync reconciles server state
+          // Optimistic agent stays visible; next WS sync reconciles server state
         });
     }
   };
 
   const handleCreateCustomAgent = (draft: CustomAgentDraft) => {
     const { agents: nextAgents, hired } = createCustomAgent(agents, draft);
+    delete deletedAgentTombstonesRef.current[hired.id];
+    delete deletedAgentTombstonesRef.current[hired.profileKey];
+    saveDeletedTombstones(deletedAgentTombstonesRef.current);
+
     setAgents(nextAgents);
+    flushWorkspaceSnapshotNow({ agents: nextAgents });
     setSelectedAgentId(hired.id);
     pushInterAgentLog(
       'executor',
@@ -747,7 +856,7 @@ export default function App() {
       `Provisioned custom Hermes profile ~/.hermes/profiles/${hired.profileKey} (${hired.buildingName}).`,
     );
 
-    if (bridgeStatus === 'live' && hasBridgeAuth) {
+    if (settings.bridgeMode === 'live' && hasBridgeAuth) {
       void createBridgeAgent(settings.bridgeUrl, sessionToken, {
         slug: hired.profileKey,
         role: hired.role,
@@ -765,7 +874,7 @@ export default function App() {
   const handleUpdateAgentAvatar = useCallback((agentId: string, avatarUrl: string) => {
     const target = agentsRef.current.find((a) => a.id === agentId);
     setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, avatarUrl } : a)));
-    if (target && bridgeStatusRef.current === 'live' && hasBridgeAuthRef.current) {
+    if (target && settingsRef.current.bridgeMode === 'live' && hasBridgeAuthRef.current) {
       const slug = target.isHQ ? 'default' : target.profileKey;
       void updateBridgeAgentAvatar(
         settingsRef.current.bridgeUrl,
@@ -776,35 +885,69 @@ export default function App() {
     }
   }, []);
 
-  const handleRetireSpecialist = useCallback((agentId: string) => {
-    const currentAgents = agentsRef.current;
-    const target = currentAgents.find((a) => a.id === agentId);
-    const { agents: nextAgents, removed } = retireSpecialist(currentAgents, agentId);
-    if (removed) {
-      setAgents(nextAgents);
-      setSelectedAgentId('executor');
-      if (target) {
-        pushInterAgentLog(
-          'executor',
-          'guardian',
-          'agent-city',
-          `Decommissioned ${target.buildingName} (${target.name}) and archived workspace.`,
-        );
-        if (
-          bridgeStatusRef.current === 'live' &&
-          hasBridgeAuthRef.current &&
-          target.profileKey !== 'default' &&
-          target.profileKey !== 'vps-guardian'
-        ) {
-          void deleteBridgeAgent(
-            settingsRef.current.bridgeUrl,
-            sessionTokenRef.current,
-            target.profileKey,
-          ).catch(() => {});
-        }
+  const handleRetireSpecialist = useCallback(
+    (agentId: string) => {
+      const currentAgents = agentsRef.current;
+      const target = currentAgents.find((a) => a.id === agentId);
+      if (
+        !target ||
+        target.isHQ ||
+        target.profileKey === 'default' ||
+        target.profileKey === 'vps-guardian'
+      ) {
+        return;
       }
-    }
-  }, []);
+
+      const { agents: nextAgents, removed } = retireSpecialist(currentAgents, agentId);
+      if (!removed) return;
+
+      // Record tombstone immediately so in-flight WS telemetry & rapid tab refreshes never resurrect this agent
+      const expiresAt = Date.now() + DELETED_TOMBSTONE_TTL_MS;
+      deletedAgentTombstonesRef.current[target.id] = expiresAt;
+      deletedAgentTombstonesRef.current[target.profileKey] = expiresAt;
+      saveDeletedTombstones(deletedAgentTombstonesRef.current);
+
+      if (chatRevertTimersRef.current[target.id]) {
+        window.clearTimeout(chatRevertTimersRef.current[target.id]);
+        delete chatRevertTimersRef.current[target.id];
+      }
+      delete chatPrevStateRef.current[target.id];
+      delete chatWorkingLockRef.current[target.id];
+
+      const nextChats = { ...chatsRef.current };
+      delete nextChats[target.id];
+
+      setAgents(nextAgents);
+      setChats(nextChats);
+      setSelectedAgentId((cur) => (cur === target.id ? 'executor' : cur));
+      setActiveChatAgentId((cur) => (cur === target.id ? 'executor' : cur));
+
+      // Flush to localStorage synchronously right away (never wait 2.2s debounce) so refresh stays clean
+      flushWorkspaceSnapshotNow({ agents: nextAgents, chats: nextChats });
+
+      pushInterAgentLog(
+        'executor',
+        'guardian',
+        'agent-city',
+        `Decommissioned ${target.buildingName} (${target.name}) and archived workspace.`,
+      );
+
+      if (settingsRef.current.bridgeMode === 'live' && hasBridgeAuthRef.current) {
+        const bridgeUrl = settingsRef.current.bridgeUrl;
+        const token = sessionTokenRef.current;
+        void deleteBridgeAgent(bridgeUrl, token, target.profileKey)
+          .then(() => fetchBridgeStatus(bridgeUrl, token))
+          .then((fresh) => {
+            latestTelemetryRef.current = fresh;
+            if (sectionRef.current !== 'city') {
+              setLiveTelemetry(fresh);
+            }
+          })
+          .catch(() => {});
+      }
+    },
+    [flushWorkspaceSnapshotNow],
+  );
 
   const handleSendChatMessage = useCallback(
     (agentId: string, content: string, attachmentName?: string) => {
@@ -1011,9 +1154,10 @@ export default function App() {
           setLiveTelemetry(snap);
           const merged = mergeBridgeTelemetry(
             snap,
-            agents,
+            agentsRef.current,
             INITIAL_HEALTH_CHECKS,
             settings.showOnlyVpsAgents,
+            getActiveExcludedProfileSet(),
           );
           setAgents(merged.agents);
           setHealthChecks(merged.healthChecks);
@@ -1062,9 +1206,10 @@ export default function App() {
       setBridgeStatus(snap.connected ? 'live' : 'error');
       const merged = mergeBridgeTelemetry(
         snap,
-        agents,
+        agentsRef.current,
         INITIAL_HEALTH_CHECKS,
         settings.showOnlyVpsAgents,
+        getActiveExcludedProfileSet(),
       );
       setAgents(merged.agents);
       setHealthChecks(merged.healthChecks);
@@ -1375,7 +1520,7 @@ export default function App() {
               onBlur={() => window.setTimeout(() => setSearchFocused(false), 160)}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search agents, missions, docs, files..."
-              className="w-full rounded-full border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] pl-9 pr-4 py-1.5 text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
+              className="w-full rounded-full border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] pl-9 pr-4 py-1.5 text-[16px] sm:text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
             />
 
             {searchFocused && searchQuery.trim().length > 0 && (
