@@ -88,6 +88,64 @@ export function hireSpecialist(
 }
 
 /**
+ * Adds a fully custom Hermes agent profile to the active fleet and rebalances 3D city slots.
+ */
+export function createCustomAgent(
+  agents: Agent[],
+  draft: {
+    name: string;
+    buildingName: string;
+    role: string;
+    department: string;
+    model: string;
+    archetype: Agent['archetype'];
+    soulSummary: string;
+    avatarUrl: string;
+    tools: string[];
+  },
+): { agents: Agent[]; hired: Agent } {
+  const trimmedName = draft.name.trim() || 'Specialist';
+  const trimmedBuilding = draft.buildingName.trim() || `${trimmedName} Tower`;
+  const baseSlug =
+    trimmedName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'agent';
+  let candidateId = baseSlug;
+  let suffix = 2;
+  while (agents.some((a) => a.id === candidateId || a.profileKey === candidateId)) {
+    candidateId = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+
+  const hired: Agent = {
+    id: candidateId,
+    name: trimmedName,
+    buildingName: trimmedBuilding,
+    role: draft.role.trim() || 'Hermes Specialist Agent',
+    department: draft.department.trim() || 'Custom Profile',
+    profileKey: candidateId,
+    status: 'working',
+    archetype: draft.archetype,
+    avatarUrl: draft.avatarUrl,
+    model: draft.model || 'combo-best',
+    currentTask: 'Provisioning ~/.hermes/profiles/ workspace & SOUL.md',
+    sessionsCount: 1,
+    tokensUsed: 0,
+    avgReplySec: 2.5,
+    uptimePct: 100.0,
+    soulSummary: draft.soulSummary,
+    tools: draft.tools.length ? draft.tools : ['hermes_cli', '9router_proxy'],
+    ringAngle: 0,
+    ringRadius: 7.4,
+  };
+
+  const rebalanced = rebalanceCitySlots([...agents, hired]);
+  const finalHired = rebalanced.find((a) => a.id === candidateId) ?? hired;
+  return { agents: rebalanced, hired: finalHired };
+}
+
+/**
  * Retires a specialist from the fleet. Executor HQ is permanently protected.
  */
 export function retireSpecialist(

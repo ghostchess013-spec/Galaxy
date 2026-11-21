@@ -18,6 +18,7 @@ import {
   Terminal,
   X,
 } from 'lucide-react';
+import AddAgentModal, { type CustomAgentDraft } from './components/AddAgentModal';
 import AskNexoraModal from './components/AskNexoraModal';
 import AgentCityView from './components/views/AgentCityView';
 import ChatView from './components/views/ChatView';
@@ -65,6 +66,7 @@ import type {
 import {
   advanceMissionProgress,
   approveMissionPlan,
+  createCustomAgent,
   createMission,
   deliverMissionReport,
   generateAgentReply,
@@ -183,6 +185,7 @@ export default function App() {
     initial.files[0]?.id ?? null,
   );
   const [askOpen, setAskOpen] = useState(false);
+  const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -520,9 +523,38 @@ export default function App() {
         arch: hired.archetype,
         avatar: hired.avatarUrl,
         soul: `# SOUL.md — ${hired.name}\n\n${hired.soulSummary}\n`,
-      }).catch(() => {
-        // Optimistic tower stays visible; next WS sync reconciles server state
-      });
+      })
+        .then(() => fetchBridgeStatus(settings.bridgeUrl, sessionToken))
+        .then((fresh) => setLiveTelemetry(fresh))
+        .catch(() => {
+          // Optimistic tower stays visible; next WS sync reconciles server state
+        });
+    }
+  };
+
+  const handleCreateCustomAgent = (draft: CustomAgentDraft) => {
+    const { agents: nextAgents, hired } = createCustomAgent(agents, draft);
+    setAgents(nextAgents);
+    setSelectedAgentId(hired.id);
+    pushInterAgentLog(
+      'executor',
+      hired.id,
+      'agent-city',
+      `Provisioned custom Hermes profile ~/.hermes/profiles/${hired.profileKey} (${hired.buildingName}).`,
+    );
+
+    if (bridgeStatus === 'live' && sessionToken) {
+      void createBridgeAgent(settings.bridgeUrl, sessionToken, {
+        slug: hired.profileKey,
+        role: hired.role,
+        model: hired.model,
+        arch: hired.archetype,
+        avatar: hired.avatarUrl,
+        soul: `# SOUL.md — ${hired.name}\n\n${hired.soulSummary}\n`,
+      })
+        .then(() => fetchBridgeStatus(settings.bridgeUrl, sessionToken))
+        .then((fresh) => setLiveTelemetry(fresh))
+        .catch(() => {});
     }
   };
 
@@ -1123,6 +1155,7 @@ export default function App() {
               onNavigate={setSection}
               onOpenChat={handleOpenChat}
               onOpenAsk={() => setAskOpen(true)}
+              onOpenAddAgent={() => setAddAgentOpen(true)}
             />
           )}
 
@@ -1134,7 +1167,7 @@ export default function App() {
               onSelectAgent={setSelectedAgentId}
               onUpdateStatus={handleUpdateAgentStatus}
               onUpdateAvatar={handleUpdateAgentAvatar}
-              onHireSpecialist={handleHireSpecialist}
+              onOpenAddAgent={() => setAddAgentOpen(true)}
               onRetireSpecialist={handleRetireSpecialist}
               onOpenChat={handleOpenChat}
               onOpenAsk={() => setAskOpen(true)}
@@ -1332,6 +1365,14 @@ export default function App() {
         onLaunchMission={handleCreateMission}
         onQuickChat={handleSendChatMessage}
         onNavigate={setSection}
+      />
+
+      <AddAgentModal
+        open={addAgentOpen}
+        isLiveBridge={bridgeStatus === 'live'}
+        onClose={() => setAddAgentOpen(false)}
+        onAddFromPreset={handleHireSpecialist}
+        onAddCustomAgent={handleCreateCustomAgent}
       />
     </div>
   );

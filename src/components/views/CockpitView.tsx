@@ -1,4 +1,4 @@
-import { ArrowUpRight, Check, Mic, Plus, ShieldCheck } from 'lucide-react';
+import { ArrowUpRight, Check, Mic, Plus, ShieldCheck, UserPlus } from 'lucide-react';
 import type {
   Agent,
   BridgeTelemetry,
@@ -25,6 +25,7 @@ interface CockpitViewProps {
   onNavigate: (section: NavSection) => void;
   onOpenChat: (agentId: string) => void;
   onOpenAsk: () => void;
+  onOpenAddAgent: () => void;
 }
 
 export default function CockpitView({
@@ -40,6 +41,7 @@ export default function CockpitView({
   onNavigate,
   onOpenChat,
   onOpenAsk,
+  onOpenAddAgent,
 }: CockpitViewProps) {
   const workingAgents = agents.filter((a) => a.status === 'working');
   const alertAgents = agents.filter((a) => a.status === 'alert');
@@ -125,6 +127,21 @@ export default function CockpitView({
                   </span>
                 </button>
               ))}
+              {agents.length < 5 && (
+                <button
+                  type="button"
+                  onClick={onOpenAddAgent}
+                  className="group flex flex-col items-center gap-1.5 text-center cursor-pointer"
+                  aria-label="Add new Hermes agent"
+                >
+                  <div className="h-10 w-10 rounded-full border border-dashed border-[var(--nx-border-strong)] group-hover:border-[var(--nx-accent)] group-hover:text-[var(--nx-accent)] flex items-center justify-center text-[var(--nx-text-muted)] transition-colors bg-[var(--nx-surface)]">
+                    <Plus className="h-4 w-4" />
+                  </div>
+                  <span className="text-[10px] text-[var(--nx-text-muted)] group-hover:text-[var(--nx-text)] truncate w-full">
+                    Add
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         </section>
@@ -132,7 +149,7 @@ export default function CockpitView({
         {/* Center Column: 3D Agent City Hero Stage + 4-KPI Strip */}
         <section className="xl:col-span-6 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden">
           <div className="px-6 pt-5 pb-4 border-b border-[var(--nx-border)]">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
                   GALAXY / Agent City
@@ -144,14 +161,24 @@ export default function CockpitView({
                   </span>
                 </h1>
               </div>
-              <button
-                type="button"
-                onClick={() => onNavigate('city')}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-              >
-                <span>Open Full City</span>
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={onOpenAddAgent}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  <span>Add Agent</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('city')}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                >
+                  <span>Open Full City</span>
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
 
             {/* 4-Column Crew Telemetry Strip matching maxres.jpg */}
