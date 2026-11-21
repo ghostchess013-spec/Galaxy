@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Download, Edit3, Eye, Plus, Save, Trash2 } from 'lucide-react';
+import { useI18n } from '../../i18n/translations';
 import type { Agent, DocItem } from '../../types/nexora';
 
 interface DocsViewProps {
@@ -21,6 +22,7 @@ export default function DocsView({
   onCreateDoc,
   onDeleteDoc,
 }: DocsViewProps) {
+  const { t, docDisplay } = useI18n();
   const [filterAgent, setFilterAgent] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState(false);
@@ -28,15 +30,18 @@ export default function DocsView({
   const [editContent, setEditContent] = useState('');
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newCategory, setNewCategory] = useState('Briefing');
+  const [newCategory, setNewCategory] = useState('');
   const [newContent, setNewContent] = useState('');
 
   const filtered = docs.filter((d) => {
+    const disp = docDisplay(d);
     const matchesAgent = filterAgent === 'all' || d.authorAgentId === filterAgent;
+    const q = query.trim().toLowerCase();
     const matchesQuery =
-      !query.trim() ||
-      d.title.toLowerCase().includes(query.toLowerCase()) ||
-      d.content.toLowerCase().includes(query.toLowerCase());
+      !q ||
+      disp.title.toLowerCase().includes(q) ||
+      disp.content.toLowerCase().includes(q) ||
+      d.title.toLowerCase().includes(q);
     return matchesAgent && matchesQuery;
   });
 
@@ -46,9 +51,12 @@ export default function DocsView({
     filtered[0] ??
     null;
 
+  const activeDisplay = activeDoc ? docDisplay(activeDoc) : null;
+
   const startEditing = (doc: DocItem) => {
-    setEditTitle(doc.title);
-    setEditContent(doc.content);
+    const disp = docDisplay(doc);
+    setEditTitle(disp.title);
+    setEditContent(disp.content);
     setEditing(true);
     setCreating(false);
   };
@@ -61,7 +69,7 @@ export default function DocsView({
       title: editTitle.trim(),
       content: editContent,
       wordCount: words,
-      updatedAt: 'Just now',
+      updatedAt: t('commonJustNow'),
     });
     setEditing(false);
   };
@@ -69,18 +77,20 @@ export default function DocsView({
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !newContent.trim()) return;
-    onCreateDoc(newTitle.trim(), newCategory, newContent);
+    onCreateDoc(newTitle.trim(), newCategory.trim() || t('docsCategoryDefault'), newContent);
     setNewTitle('');
+    setNewCategory('');
     setNewContent('');
     setCreating(false);
   };
 
   const handleDownload = (doc: DocItem) => {
-    const blob = new Blob([doc.content], { type: 'text/markdown;charset=utf-8' });
+    const disp = docDisplay(doc);
+    const blob = new Blob([disp.content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${doc.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
+    a.download = `${disp.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -90,14 +100,13 @@ export default function DocsView({
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--nx-border)] pb-5">
         <div>
           <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-            GALAXY / Docs
+            {t('docsEyebrow')}
           </p>
           <h1 className="font-editorial text-4xl leading-tight mt-1 text-[var(--nx-text)]">
-            The <span className="italic text-[var(--nx-accent)]">library.</span>
+            {t('docsTitlePrefix')}{' '}
+            <span className="italic text-[var(--nx-accent)]">{t('docsTitleAccent')}</span>
           </h1>
-          <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">
-            Everything your agents write, filed in one vault—ready to read, edit, or download.
-          </p>
+          <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">{t('docsSubtitle')}</p>
         </div>
 
         <button
@@ -105,11 +114,12 @@ export default function DocsView({
           onClick={() => {
             setCreating(true);
             setEditing(false);
+            setNewCategory(t('docsCategoryDefault'));
           }}
           className="inline-flex items-center gap-2 rounded-lg bg-[var(--nx-accent)] px-4 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap cursor-pointer"
         >
           <Plus className="h-4 w-4" />
-          <span>New Document</span>
+          <span>{t('docsNewBtn')}</span>
         </button>
       </div>
 
@@ -118,18 +128,18 @@ export default function DocsView({
         <aside className="lg:col-span-4 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <label htmlFor="docs-filter-input" className="sr-only">
-              Filter documents
+              {t('docsFilterAria')}
             </label>
             <input
               id="docs-filter-input"
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter library..."
+              placeholder={t('docsFilterPlaceholder')}
               className="flex-1 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-1.5 text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
             />
             <label htmlFor="docs-agent-select" className="sr-only">
-              Filter by author agent
+              {t('docsAuthorAria')}
             </label>
             <select
               id="docs-agent-select"
@@ -137,7 +147,7 @@ export default function DocsView({
               onChange={(e) => setFilterAgent(e.target.value)}
               className="rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-2.5 py-1.5 text-xs text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
             >
-              <option value="all">All crew</option>
+              <option value="all">{t('docsAllCrew')}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -149,12 +159,14 @@ export default function DocsView({
           <div className="flex-1 overflow-y-auto space-y-2 max-h-[520px]">
             {filtered.length === 0 ? (
               <p className="py-8 text-center text-xs text-[var(--nx-text-subtle)]">
-                No documents match that filter.
+                {t('docsNoMatch')}
               </p>
             ) : (
               filtered.map((doc) => {
+                const disp = docDisplay(doc);
                 const selected = activeDoc?.id === doc.id && !creating;
-                const author = agents.find((a) => a.id === doc.authorAgentId)?.name ?? doc.authorAgentId;
+                const author =
+                  agents.find((a) => a.id === doc.authorAgentId)?.name ?? doc.authorAgentId;
                 return (
                   <button
                     key={doc.id}
@@ -171,10 +183,10 @@ export default function DocsView({
                     }`}
                   >
                     <p className="text-xs font-semibold text-[var(--nx-text)] leading-snug">
-                      {doc.title}
+                      {disp.title}
                     </p>
                     <p className="mt-1.5 text-[11px] text-[var(--nx-text-muted)]">
-                      {doc.category} · {author} · {doc.wordCount} words
+                      {disp.category} · {author} · {doc.wordCount} {t('commonWords')}
                     </p>
                   </button>
                 );
@@ -188,21 +200,22 @@ export default function DocsView({
           {creating ? (
             <form onSubmit={handleCreate} className="space-y-4 flex-1 flex flex-col">
               <h2 className="font-editorial text-2xl text-[var(--nx-text)]">
-                Create <span className="italic text-[var(--nx-accent)]">Document.</span>
+                {t('docsCreatePrefix')}{' '}
+                <span className="italic text-[var(--nx-accent)]">{t('docsCreateAccent')}</span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <input
                   type="text"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="Document title..."
+                  placeholder={t('docsTitlePlaceholder')}
                   className="sm:col-span-2 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3.5 py-2 text-sm text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
                 />
                 <input
                   type="text"
                   value={newCategory}
                   onChange={(e) => setNewCategory(e.target.value)}
-                  placeholder="Category"
+                  placeholder={t('docsCategoryPlaceholder')}
                   className="rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3.5 py-2 text-sm text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
                 />
               </div>
@@ -210,7 +223,7 @@ export default function DocsView({
                 rows={12}
                 value={newContent}
                 onChange={(e) => setNewContent(e.target.value)}
-                placeholder="# Markdown content..."
+                placeholder={t('docsContentPlaceholder')}
                 className="flex-1 w-full rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] p-4 font-mono text-xs text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
               />
               <div className="flex items-center justify-end gap-3">
@@ -219,24 +232,25 @@ export default function DocsView({
                   onClick={() => setCreating(false)}
                   className="rounded-lg border border-[var(--nx-border-strong)] px-4 py-2 text-xs font-medium text-[var(--nx-text-muted)] cursor-pointer"
                 >
-                  Cancel
+                  {t('commonCancel')}
                 </button>
                 <button
                   type="submit"
                   className="rounded-lg bg-[var(--nx-accent)] px-4 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] cursor-pointer"
                 >
-                  File to Library
+                  {t('docsFileToLibrary')}
                 </button>
               </div>
             </form>
-          ) : activeDoc ? (
+          ) : activeDoc && activeDisplay ? (
             <>
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--nx-border)] pb-4">
                 <div>
                   <p className="text-xs text-[var(--nx-text-muted)]">
-                    {activeDoc.category}
-                    {activeDoc.missionCode ? ` · ${activeDoc.missionCode}` : ''} · Updated{' '}
-                    {activeDoc.updatedAt} · {activeDoc.wordCount} words
+                    {activeDisplay.category}
+                    {activeDoc.missionCode ? ` · ${activeDoc.missionCode}` : ''} ·{' '}
+                    {t('commonUpdated')} {activeDisplay.updatedAt} · {activeDoc.wordCount}{' '}
+                    {t('commonWords')}
                   </p>
                   {editing ? (
                     <input
@@ -247,7 +261,7 @@ export default function DocsView({
                     />
                   ) : (
                     <h2 className="font-editorial text-2xl mt-1 text-[var(--nx-text)]">
-                      {activeDoc.title}
+                      {activeDisplay.title}
                     </h2>
                   )}
                 </div>
@@ -261,7 +275,7 @@ export default function DocsView({
                         className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--nx-text-muted)] cursor-pointer"
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        <span>Cancel</span>
+                        <span>{t('commonCancel')}</span>
                       </button>
                       <button
                         type="button"
@@ -269,7 +283,7 @@ export default function DocsView({
                         className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] cursor-pointer"
                       >
                         <Save className="h-3.5 w-3.5" />
-                        <span>Save</span>
+                        <span>{t('commonSave')}</span>
                       </button>
                     </>
                   ) : (
@@ -280,7 +294,7 @@ export default function DocsView({
                         className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] cursor-pointer"
                       >
                         <Edit3 className="h-3.5 w-3.5" />
-                        <span>Edit</span>
+                        <span>{t('commonEdit')}</span>
                       </button>
                       <button
                         type="button"
@@ -288,12 +302,12 @@ export default function DocsView({
                         className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] cursor-pointer"
                       >
                         <Download className="h-3.5 w-3.5" />
-                        <span>Download .md</span>
+                        <span>{t('docsDownloadMd')}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => onDeleteDoc(activeDoc.id)}
-                        aria-label={`Delete ${activeDoc.title}`}
+                        aria-label={t('docsDeleteAria', { title: activeDisplay.title })}
                         className="rounded-lg border border-[var(--nx-border-strong)] p-1.5 text-[var(--nx-text-muted)] hover:text-[var(--nx-alert)] hover:border-[var(--nx-alert)]/40 cursor-pointer"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -313,14 +327,14 @@ export default function DocsView({
                   />
                 ) : (
                   <div className="prose-sm max-w-none space-y-3 text-sm leading-relaxed text-[var(--nx-text)] whitespace-pre-wrap">
-                    {activeDoc.content}
+                    {activeDisplay.content}
                   </div>
                 )}
               </div>
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-sm text-[var(--nx-text-muted)]">
-              Select a document or create a new one.
+              {t('docsEmptyPane')}
             </div>
           )}
         </section>

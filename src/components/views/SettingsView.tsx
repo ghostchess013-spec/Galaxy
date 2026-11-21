@@ -1,5 +1,6 @@
-import { Lock, RotateCcw } from 'lucide-react';
-import type { OperatorSettings, ThemeId } from '../../types/nexora';
+import { Globe, Lock, RotateCcw } from 'lucide-react';
+import { useI18n } from '../../i18n/translations';
+import type { LanguageId, OperatorSettings, ThemeId } from '../../types/nexora';
 
 interface SettingsViewProps {
   settings: OperatorSettings;
@@ -7,31 +8,23 @@ interface SettingsViewProps {
   onResetWorkspace: () => void;
 }
 
-const THEMES: Array<{
+const THEME_SWATCHES: Array<{
   id: ThemeId;
-  name: string;
-  desc: string;
   bgSwatch: string;
   accentSwatch: string;
 }> = [
   {
     id: 'obsidian-ember',
-    name: 'Obsidian Ember',
-    desc: 'Signature GALAXY dark obsidian with warm ember orange.',
     bgSwatch: '#09090b',
     accentSwatch: '#ff5a1f',
   },
   {
     id: 'editorial-alabaster',
-    name: 'Editorial Alabaster',
-    desc: 'Warm cream broadsheet canvas with crisp ink and ember highlights.',
     bgSwatch: '#f5f2ec',
     accentSwatch: '#e64c15',
   },
   {
     id: 'tactical-phosphor',
-    name: 'Tactical Phosphor',
-    desc: 'High-contrast obsidian console with phosphor green & electric blue.',
     bgSwatch: '#050706',
     accentSwatch: '#00e864',
   },
@@ -42,39 +35,110 @@ export default function SettingsView({
   onUpdateSettings,
   onResetWorkspace,
 }: SettingsViewProps) {
+  const { t, themeLabel } = useI18n();
+
+  const languageOptions: Array<{
+    id: LanguageId;
+    badge: string;
+    title: string;
+    desc: string;
+  }> = [
+    {
+      id: 'id',
+      badge: 'ID',
+      title: t('settingsLangIdTitle'),
+      desc: t('settingsLangIdDesc'),
+    },
+    {
+      id: 'en',
+      badge: 'EN',
+      title: t('settingsLangEnTitle'),
+      desc: t('settingsLangEnDesc'),
+    },
+  ];
+
   return (
     <div className="space-y-6 pb-8 max-w-4xl">
       <div className="border-b border-[var(--nx-border)] pb-5">
         <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-          Manage / Settings
+          {t('settingsEyebrow')}
         </p>
         <h1 className="font-editorial text-4xl leading-tight mt-1 text-[var(--nx-text)]">
-          Make it <span className="italic text-[var(--nx-accent)]">yours.</span>
+          {t('settingsTitlePrefix')}{' '}
+          <span className="italic text-[var(--nx-accent)]">{t('settingsTitleAccent')}</span>
         </h1>
-        <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">
-          Customize operator identity, palette theme, voice defaults, and dashboard lock protection.
-        </p>
+        <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">{t('settingsSubtitle')}</p>
       </div>
+
+      {/* Language & Locale Switcher */}
+      <section className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <Globe className="h-5 w-5 text-[var(--nx-accent)] mt-1 shrink-0" />
+          <div>
+            <h2 className="font-editorial text-2xl text-[var(--nx-text)]">
+              {t('settingsLangTitlePrefix')}{' '}
+              <span className="italic text-[var(--nx-accent)]">{t('settingsLangTitleAccent')}</span>
+            </h2>
+            <p className="text-xs text-[var(--nx-text-muted)] mt-0.5">{t('settingsLangDesc')}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          {languageOptions.map((opt) => {
+            const active = settings.language === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onUpdateSettings({ language: opt.id })}
+                className={`rounded-xl border p-4 text-left transition-colors cursor-pointer ${
+                  active
+                    ? 'border-[var(--nx-accent)] bg-[var(--nx-accent-soft)]'
+                    : 'border-[var(--nx-border)] bg-[var(--nx-surface)] hover:border-[var(--nx-border-strong)]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="font-mono text-[11px] font-bold tracking-[0.14em] uppercase px-2 py-0.5 rounded bg-[var(--nx-bg-elevated)] border border-[var(--nx-border-strong)] text-[var(--nx-accent)]">
+                    {opt.badge}
+                  </span>
+                  {active && (
+                    <span className="font-mono text-[10px] uppercase text-[var(--nx-accent)]">
+                      {t('commonActive')}
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm font-semibold text-[var(--nx-text)]">{opt.title}</div>
+                <p className="text-xs text-[var(--nx-text-muted)] mt-1 leading-relaxed">
+                  {opt.desc}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Palette & Appearance */}
       <section className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-6 space-y-4">
         <div>
           <h2 className="font-editorial text-2xl text-[var(--nx-text)]">
-            Palette & <span className="italic text-[var(--nx-accent)]">Atmosphere.</span>
+            {t('settingsPaletteTitlePrefix')}{' '}
+            <span className="italic text-[var(--nx-accent)]">
+              {t('settingsPaletteTitleAccent')}
+            </span>
           </h2>
-          <p className="text-xs text-[var(--nx-text-muted)] mt-0.5">
-            Applies across the full dashboard and dynamically restyles the 3D Agent City island.
-          </p>
+          <p className="text-xs text-[var(--nx-text-muted)] mt-0.5">{t('settingsPaletteDesc')}</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-          {THEMES.map((t) => {
-            const active = settings.theme === t.id;
+          {THEME_SWATCHES.map((themeItem) => {
+            const active = settings.theme === themeItem.id;
+            const label = themeLabel(themeItem.id);
             return (
               <button
-                key={t.id}
+                key={themeItem.id}
                 type="button"
-                onClick={() => onUpdateSettings({ theme: t.id })}
+                onClick={() => onUpdateSettings({ theme: themeItem.id })}
                 className={`rounded-xl border p-4 text-left transition-colors cursor-pointer ${
                   active
                     ? 'border-[var(--nx-accent)] bg-[var(--nx-accent-soft)]'
@@ -84,17 +148,19 @@ export default function SettingsView({
                 <div className="flex items-center gap-2 mb-3">
                   <span
                     className="h-5 w-5 rounded-full border border-white/20"
-                    style={{ backgroundColor: t.bgSwatch }}
+                    style={{ backgroundColor: themeItem.bgSwatch }}
                     aria-hidden="true"
                   />
                   <span
                     className="h-5 w-5 rounded-full border border-white/20"
-                    style={{ backgroundColor: t.accentSwatch }}
+                    style={{ backgroundColor: themeItem.accentSwatch }}
                     aria-hidden="true"
                   />
                 </div>
-                <div className="text-sm font-semibold text-[var(--nx-text)]">{t.name}</div>
-                <p className="text-xs text-[var(--nx-text-muted)] mt-1 leading-relaxed">{t.desc}</p>
+                <div className="text-sm font-semibold text-[var(--nx-text)]">{label.name}</div>
+                <p className="text-xs text-[var(--nx-text-muted)] mt-1 leading-relaxed">
+                  {label.desc}
+                </p>
               </button>
             );
           })}
@@ -104,13 +170,17 @@ export default function SettingsView({
       {/* Operator Identity */}
       <section className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-6 space-y-4">
         <h2 className="font-editorial text-2xl text-[var(--nx-text)]">
-          Operator <span className="italic text-[var(--nx-accent)]">Identity.</span>
+          {t('settingsIdentityPrefix')}{' '}
+          <span className="italic text-[var(--nx-accent)]">{t('settingsIdentityAccent')}</span>
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label htmlFor="settings-op-name" className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5">
-              Operator Name
+            <label
+              htmlFor="settings-op-name"
+              className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5"
+            >
+              {t('settingsOperatorName')}
             </label>
             <input
               id="settings-op-name"
@@ -121,8 +191,11 @@ export default function SettingsView({
             />
           </div>
           <div>
-            <label htmlFor="settings-city" className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5">
-              Clock City Label
+            <label
+              htmlFor="settings-city"
+              className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5"
+            >
+              {t('settingsClockCity')}
             </label>
             <input
               id="settings-city"
@@ -133,8 +206,11 @@ export default function SettingsView({
             />
           </div>
           <div>
-            <label htmlFor="settings-tz" className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5">
-              Timezone
+            <label
+              htmlFor="settings-tz"
+              className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5"
+            >
+              {t('settingsTimezone')}
             </label>
             <select
               id="settings-tz"
@@ -160,10 +236,10 @@ export default function SettingsView({
             <Lock className="h-5 w-5 text-[var(--nx-accent)] mt-0.5 shrink-0" />
             <div>
               <h2 className="text-sm font-semibold text-[var(--nx-text)]">
-                Dashboard Lock (Optional PIN Gate)
+                {t('settingsLockTitle')}
               </h2>
               <p className="text-xs text-[var(--nx-text-muted)] mt-0.5">
-                Require a 4-digit PIN when opening GALAXY on shared devices.
+                {t('settingsLockDesc')}
               </p>
             </div>
           </div>
@@ -179,14 +255,17 @@ export default function SettingsView({
                 : 'border-[var(--nx-border-strong)] text-[var(--nx-text-muted)]'
             }`}
           >
-            {settings.dashboardPinEnabled ? 'Lock Enabled' : 'Enable Lock'}
+            {settings.dashboardPinEnabled ? t('settingsLockEnabled') : t('settingsLockEnable')}
           </button>
         </div>
 
         {settings.dashboardPinEnabled && (
           <div className="max-w-xs">
-            <label htmlFor="settings-pin" className="block text-xs text-[var(--nx-text-muted)] mb-1">
-              4-Digit Access PIN
+            <label
+              htmlFor="settings-pin"
+              className="block text-xs text-[var(--nx-text-muted)] mb-1"
+            >
+              {t('settingsPinLabel')}
             </label>
             <input
               id="settings-pin"
@@ -201,10 +280,8 @@ export default function SettingsView({
 
         <div className="border-t border-[var(--nx-border)] pt-4 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-medium text-[var(--nx-text)]">Restore Default Fleet Seed</p>
-            <p className="text-xs text-[var(--nx-text-subtle)]">
-              Resets local missions, hired towers, chats, and settings back to initial demo state.
-            </p>
+            <p className="text-xs font-medium text-[var(--nx-text)]">{t('settingsResetTitle')}</p>
+            <p className="text-xs text-[var(--nx-text-subtle)]">{t('settingsResetDesc')}</p>
           </div>
           <button
             type="button"
@@ -212,7 +289,7 @@ export default function SettingsView({
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-alert)]/40 px-3.5 py-1.5 text-xs font-medium text-[var(--nx-alert)] hover:bg-[var(--nx-alert)]/10 cursor-pointer"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            <span>Reset Workspace</span>
+            <span>{t('settingsResetBtn')}</span>
           </button>
         </div>
       </section>

@@ -105,7 +105,7 @@ export function createCustomAgent(
   },
 ): { agents: Agent[]; hired: Agent } {
   const trimmedName = draft.name.trim() || 'Specialist';
-  const trimmedBuilding = draft.buildingName.trim() || `${trimmedName} Tower`;
+  const trimmedBuilding = draft.buildingName.trim() || `${trimmedName} Desk`;
   const baseSlug =
     trimmedName
       .toLowerCase()
@@ -563,6 +563,7 @@ export function generateAgentReply(
   agent: Agent,
   prompt: string,
   allAgents: Agent[],
+  lang: 'en' | 'id' = 'en',
 ): { text: string; toolTrace: string[] } {
   const lower = prompt.toLowerCase();
   const workingNames = allAgents
@@ -570,29 +571,60 @@ export function generateAgentReply(
     .map((a) => a.name)
     .join(', ');
 
-  if (lower.includes('status') || lower.includes('health') || lower.includes('vps')) {
+  if (
+    lower.includes('status') ||
+    lower.includes('health') ||
+    lower.includes('kesehatan') ||
+    lower.includes('vps')
+  ) {
     return {
-      text: `${agent.name} reporting from ${agent.buildingName}: hermesagent (100.72.221.36) is optimal at 18% CPU and 5.4 GB of 24 GB RAM. Currently active crew: ${workingNames || 'all units on standby'}.`,
+      text:
+        lang === 'id'
+          ? `${agent.name} melapor dari ${agent.buildingName}: hermesagent (100.72.221.36) dalam kondisi optimal dengan CPU 18% dan RAM 5.4 GB dari 24 GB. Tim yang sedang aktif bekerja: ${workingNames || 'seluruh unit sedang siaga'}.`
+          : `${agent.name} reporting from ${agent.buildingName}: hermesagent (100.72.221.36) is optimal at 18% CPU and 5.4 GB of 24 GB RAM. Currently active crew: ${workingNames || 'all units on standby'}.`,
       toolTrace: ['vps_probe("100.72.221.36")', 'fleet_bus.active()'],
     };
   }
 
-  if (lower.includes('mission') || lower.includes('plan') || lower.includes('build')) {
+  if (
+    lower.includes('mission') ||
+    lower.includes('misi') ||
+    lower.includes('plan') ||
+    lower.includes('rencana') ||
+    lower.includes('persetujuan') ||
+    lower.includes('build')
+  ) {
     return {
-      text: `Understood. I have scoped "${prompt.slice(0, 72)}" from ${agent.buildingName}. Per permanent operating rules, head to the Missions board or use Ask GALAXY to submit it as a formal mission so you can approve the specialist plan before execution.`,
+      text:
+        lang === 'id'
+          ? `Siap dimengerti. Saya sudah memetakan "${prompt.slice(0, 72)}" dari ${agent.buildingName}. Sesuai aturan operasi permanen, buka halaman Misi atau gunakan Tanya GALAXY untuk mengajukan rencana resmi agar Anda dapat menyetujuinya sebelum dieksekusi.`
+          : `Understood. I have scoped "${prompt.slice(0, 72)}" from ${agent.buildingName}. Per permanent operating rules, head to the Missions board or use Ask GALAXY to submit it as a formal mission so you can approve the specialist plan before execution.`,
       toolTrace: ['mission_scope.draft()', 'rules.check("PLAN_APPROVAL")'],
     };
   }
 
-  if (lower.includes('rule') || lower.includes('who are you') || lower.includes('soul')) {
+  if (
+    lower.includes('rule') ||
+    lower.includes('aturan') ||
+    lower.includes('peran') ||
+    lower.includes('who are you') ||
+    lower.includes('siapa kamu') ||
+    lower.includes('soul')
+  ) {
     return {
-      text: `I am ${agent.name} (${agent.role}) stationed at ${agent.buildingName}. ${agent.soulSummary}`,
+      text:
+        lang === 'id'
+          ? `Saya ${agent.name} (${agent.role}) yang bertugas di ${agent.buildingName}. Saya beroperasi dengan disiplin aturan permanen dan selalu menunggu persetujuan Operator sebelum mengeksekusi tindakan kritis.`
+          : `I am ${agent.name} (${agent.role}) stationed at ${agent.buildingName}. ${agent.soulSummary}`,
       toolTrace: [`memory.read("${agent.profileKey}/SOUL.md")`],
     };
   }
 
   return {
-    text: `${agent.name} (${agent.buildingName}) received your brief: "${prompt.trim()}". I am routing this through ${agent.model} with my active tools (${agent.tools.slice(0, 3).join(', ')}) and can log a structured summary straight into the Docs Library whenever you're ready.`,
+    text:
+      lang === 'id'
+        ? `${agent.name} (${agent.buildingName}) telah menerima arahan Anda: "${prompt.trim()}". Saya memprosesnya melalui ${agent.model} dengan perangkat aktif (${agent.tools.slice(0, 3).join(', ')}) dan siap menyusun ringkasan terstruktur ke Pustaka Dokumen kapan pun Anda butuhkan.`
+        : `${agent.name} (${agent.buildingName}) received your brief: "${prompt.trim()}". I am routing this through ${agent.model} with my active tools (${agent.tools.slice(0, 3).join(', ')}) and can log a structured summary straight into the Docs Library whenever you're ready.`,
     toolTrace: [`${agent.tools[0] ?? 'fleet_bus'}()`, 'memory_context.sync()'],
   };
 }

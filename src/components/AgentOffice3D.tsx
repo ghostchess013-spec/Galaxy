@@ -3,7 +3,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { Agent, ThemeId } from '../types/nexora';
+import {
+  OFFICE_ALERT_FALLBACK,
+  OFFICE_IDLE_THOUGHTS,
+  OFFICE_WORKING_THOUGHTS,
+  useI18n,
+} from '../i18n/translations';
+import type { Agent, LanguageId, ThemeId } from '../types/nexora';
 import {
   createCitySkylineTexture,
   createDormCarpetTexture,
@@ -103,43 +109,6 @@ const AGENT_OUTFIT_PALETTE = [
 
 const SKIN_TONES = [0xf2c8a2, 0xe3b18a, 0xd49c73, 0xf6d4b7, 0xc78d65];
 const HAIR_TONES = [0x1c1917, 0x3b2618, 0x27272a, 0x523420, 0x18181b];
-
-const IDLE_THOUGHTS: Record<IdleActivityType, { emoji: string; lines: string[] }> = {
-  coffee: {
-    emoji: '☕',
-    lines: ['Ngopi dulu ah, lagi santai...', 'Bikin espresso biar fokus lagi', 'Cek pantry, butuh kafein'],
-  },
-  tv: {
-    emoji: '📺',
-    lines: ['Nonton TV bentar, lagi gabut...', 'Santai di sofa ruang tamu', 'Lagi kosong nih, nonton dulu'],
-  },
-  billiard: {
-    emoji: '🎱',
-    lines: ['Main billiard dulu mumpung idle', 'Bosan nih, latihan sodok bola', 'Cari inspirasi di meja billiard'],
-  },
-  meeting: {
-    emoji: '📋',
-    lines: ['Cek papan Kanban sebentar...', 'Mikirin ide upgrade baru', 'Review strategi di ruang meeting'],
-  },
-  reading: {
-    emoji: '📖',
-    lines: ['Baca santai di ruang baca...', 'Hmm, habis ini tugas apa ya?', 'Lagi mikir sambil bersantai'],
-  },
-  stroll: {
-    emoji: '🚶',
-    lines: ['Jalan-jalan bentar, pegal duduk', 'Lagi gabut keliling kantor...', 'Peregangan dulu biar segar'],
-  },
-  nap: {
-    emoji: '😴',
-    lines: ['Zzz... tidur siang di Lantai 2', 'Rebahan dulu mumpung nganggur', 'Isi energi di kasur Lantai 2'],
-  },
-};
-
-const WORKING_THOUGHTS = [
-  'Fokus eksekusi tugas aktif...',
-  'Menyusun hasil terbaik...',
-  'Memproses alur 9Router...',
-];
 
 const _projVec = new THREE.Vector3();
 const _targetCamPos = new THREE.Vector3();
@@ -886,6 +855,9 @@ const OfficeViewport = memo(
     labelDotRefs,
     onClickAgent,
   }: OfficeViewportProps) {
+    const { lang, agentDisplay } = useI18n();
+    const idleDefaultBubble =
+      lang === 'id' ? '☕ Lagi santai di kantor...' : '☕ Relaxing in the office...';
     return (
       <div
         className="relative w-full h-full overflow-hidden select-none touch-none [contain:layout_style]"
@@ -898,12 +870,13 @@ const OfficeViewport = memo(
         <div className="pointer-events-none absolute inset-0 overflow-hidden [contain:layout_style]">
           {agents.map((agent, idx) => {
             const pal = AGENT_OUTFIT_PALETTE[idx % AGENT_OUTFIT_PALETTE.length];
+            const disp = agentDisplay(agent);
             const initialThought =
               agent.status === 'working'
-                ? `💻 ${agent.currentTask}`
+                ? `💻 ${disp.task}`
                 : agent.status === 'alert'
-                  ? `⚠️ ${agent.currentTask}`
-                  : '☕ Lagi santai di kantor...';
+                  ? `⚠️ ${disp.task}`
+                  : idleDefaultBubble;
             const initialDot =
               agent.status === 'alert'
                 ? '#EF4444'
@@ -920,7 +893,7 @@ const OfficeViewport = memo(
                 type="button"
                 onClick={() => onClickAgent(agent.id)}
                 className="pointer-events-auto touch-none absolute top-0 left-0 flex flex-col items-center gap-0.5 cursor-pointer will-change-transform focus-visible:outline-2 focus-visible:outline-offset-2"
-                aria-label={`Inspect ${agent.name}`}
+                aria-label={lang === 'id' ? `Periksa ${agent.name}` : `Inspect ${agent.name}`}
               >
                 <div
                   ref={(node) => {
@@ -969,7 +942,7 @@ const OfficeViewport = memo(
                   <span>{agent.name}</span>
                   {!compact && (
                     <span className="opacity-80 font-normal truncate max-w-[92px]">
-                      · {agent.role.split(' ')[0]}
+                      · {disp.role.split(' ')[0]}
                     </span>
                   )}
                 </div>
@@ -995,6 +968,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
   onMoodSnapshot,
   onSelectedMoodChange,
 }: AgentOffice3DProps) {
+  const { lang, agentDisplay } = useI18n();
   const mountRef = useRef<HTMLDivElement | null>(null);
   const labelRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const labelBubbleBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -1007,6 +981,8 @@ const AgentOffice3D = memo(function AgentOffice3D({
   const selectedRef = useRef<string | null>(selectedAgentId);
   const onSelectRef = useRef(onSelectAgent);
   const themeRef = useRef<ThemeId>(theme);
+  const langRef = useRef<LanguageId>(lang);
+  const agentDisplayRef = useRef(agentDisplay);
   const floorViewRef = useRef<OfficeFloorView>(floorView);
   const onMoodSnapshotRef = useRef(onMoodSnapshot);
   const onSelectedMoodChangeRef = useRef(onSelectedMoodChange);
@@ -1023,19 +999,22 @@ const AgentOffice3D = memo(function AgentOffice3D({
   selectedRef.current = selectedAgentId;
   onSelectRef.current = onSelectAgent;
   themeRef.current = theme;
+  langRef.current = lang;
+  agentDisplayRef.current = agentDisplay;
   floorViewRef.current = floorView;
   onMoodSnapshotRef.current = onMoodSnapshot;
   onSelectedMoodChangeRef.current = onSelectedMoodChange;
 
   const fleetSignature = useMemo(() => agents.map((a) => a.id).join('|'), [agents]);
   const fleetLabelKey = useMemo(
-    () => agents.map((a) => `${a.id}:${a.name}:${a.role}`).join('|'),
-    [agents],
+    () => `${lang}||` + agents.map((a) => `${a.id}:${a.name}:${a.role}`).join('|'),
+    [agents, lang],
   );
 
   const sceneApiRef = useRef<{
     rebuildDynamicFleet: (nextAgents: Agent[]) => void;
     applyTheme: (nextTheme: ThemeId) => void;
+    applyLanguage: (nextLang: LanguageId) => void;
     applyFloorView: (mode: OfficeFloorView) => void;
     focusAgent: (agentId: string | null) => void;
     setCameraPreset: (mode: OfficeCameraPreset) => void;
@@ -1924,13 +1903,17 @@ const AgentOffice3D = memo(function AgentOffice3D({
         const chairPos = new THREE.Vector3(dSlot.x, 0, dSlot.z + 0.72);
         const bedPos = new THREE.Vector3(bSlot.x, FLOOR2_Y, bSlot.z);
 
+        const curLang = langRef.current;
+        const localizedTask = agentDisplayRef.current(agent).task;
+        const workingBank = OFFICE_WORKING_THOUGHTS[curLang];
+        const idleBank = OFFICE_IDLE_THOUGHTS[curLang];
         const prevRt = prevById.get(agent.id);
         let initialActivity: AgentRuntime['activity'] = 'working';
         let startPos = chairPos.clone();
         let startFloor: 1 | 2 = 1;
         let pose: AgentRuntime['pose'] = 'sit';
         let faceAngle = Math.PI;
-        let thought = agent.currentTask || WORKING_THOUGHTS[idx % WORKING_THOUGHTS.length];
+        let thought = localizedTask || workingBank[idx % workingBank.length];
         let moodEmoji = '💻';
         let preservedPath: Waypoint[] = [];
         let preservedRotY = faceAngle;
@@ -1954,7 +1937,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
           faceAngle = 0;
           preservedRotY = 0;
           moodEmoji = '⚠️';
-          thought = agent.currentTask || 'Butuh persetujuan Operator!';
+          thought = localizedTask || OFFICE_ALERT_FALLBACK[curLang];
         } else if (agent.status === 'idle') {
           const chosen = idleCycle[idx % idleCycle.length];
           initialActivity = chosen;
@@ -1964,7 +1947,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
           pose = spot.pose;
           faceAngle = spot.faceAngle;
           preservedRotY = spot.faceAngle;
-          const meta = IDLE_THOUGHTS[chosen];
+          const meta = idleBank[chosen];
           moodEmoji = meta.emoji;
           thought = meta.lines[idx % meta.lines.length];
         }
@@ -2103,6 +2086,29 @@ const AgentOffice3D = memo(function AgentOffice3D({
       startCameraTransition();
     };
 
+    const applyLanguage = (nextLang: LanguageId) => {
+      langRef.current = nextLang;
+      const idleBank = OFFICE_IDLE_THOUGHTS[nextLang];
+      const workingBank = OFFICE_WORKING_THOUGHTS[nextLang];
+      const agentById = agentMapRef.current;
+      runtimes.forEach((rt) => {
+        const ag = agentById.get(rt.agentId);
+        const localizedTask = ag ? agentDisplayRef.current(ag).task : '';
+        if (rt.activity === 'working') {
+          rt.thought = localizedTask || workingBank[rt.index % workingBank.length];
+        } else if (rt.activity === 'alert') {
+          rt.thought = localizedTask || OFFICE_ALERT_FALLBACK[nextLang];
+        } else {
+          const meta = idleBank[rt.activity];
+          rt.moodEmoji = meta.emoji;
+          rt.thought = meta.lines[rt.index % meta.lines.length];
+        }
+        rt.lastRenderedThought = '';
+      });
+      lastSelectedMoodKey = '';
+      pushSelectedMoodIfChanged();
+    };
+
     rebuildDynamicFleet(agentsRef.current);
     applyFloorView(floorViewRef.current, false);
 
@@ -2110,7 +2116,14 @@ const AgentOffice3D = memo(function AgentOffice3D({
       renderer.compile(scene, camera);
     }
 
-    sceneApiRef.current = { rebuildDynamicFleet, applyTheme, applyFloorView, focusAgent, setCameraPreset };
+    sceneApiRef.current = {
+      rebuildDynamicFleet,
+      applyTheme,
+      applyLanguage,
+      applyFloorView,
+      focusAgent,
+      setCameraPreset,
+    };
 
     // Raycasting pointer click (strictly ignores multi-touch pinch-to-zoom gestures and never hijacks zoom on single tap)
     const raycaster = new THREE.Raycaster();
@@ -2281,8 +2294,13 @@ const AgentOffice3D = memo(function AgentOffice3D({
         if (!agent) continue;
 
         // Reconcile status transitions (working / alert / idle) without rebuilding meshes
+        const curLang = langRef.current;
+        const localizedTask = agentDisplayRef.current(agent).task;
+        const workingBank = OFFICE_WORKING_THOUGHTS[curLang];
+        const idleBank = OFFICE_IDLE_THOUGHTS[curLang];
+
         if (agent.status === 'working') {
-          const nextTaskText = agent.currentTask || WORKING_THOUGHTS[rt.index % WORKING_THOUGHTS.length];
+          const nextTaskText = localizedTask || workingBank[rt.index % workingBank.length];
           if (rt.activity !== 'working') {
             rt.activity = 'working';
             rt.moodEmoji = '💻';
@@ -2305,7 +2323,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
         } else if (agent.status === 'alert' && rt.activity !== 'alert') {
           rt.activity = 'alert';
           rt.moodEmoji = '⚠️';
-          rt.thought = agent.currentTask || 'Butuh persetujuan Operator!';
+          rt.thought = localizedTask || OFFICE_ALERT_FALLBACK[curLang];
           rt.path = buildRoutePath(
             rt.currentFloor,
             1,
@@ -2324,7 +2342,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
             const pick = IDLE_ACTIVITIES[(rt.index + Math.floor(elapsed / 7)) % IDLE_ACTIVITIES.length];
             const spot = getActivitySpot(pick, rt.index, rt.bedPos);
             rt.activity = pick;
-            const meta = IDLE_THOUGHTS[pick];
+            const meta = idleBank[pick];
             rt.moodEmoji = meta.emoji;
             rt.thought = meta.lines[(rt.index + Math.floor(elapsed)) % meta.lines.length];
             rt.path = buildRoutePath(rt.currentFloor, spot.floor, spot.pos, rt.currentPos.y);
@@ -2595,6 +2613,11 @@ const AgentOffice3D = memo(function AgentOffice3D({
   useEffect(() => {
     sceneApiRef.current?.applyTheme(theme);
   }, [theme]);
+
+  // Refresh floating thought texts immediately when language switches (zero WebGL reset)
+  useEffect(() => {
+    sceneApiRef.current?.applyLanguage(lang);
+  }, [lang]);
 
   // Floor visibility transitions (skip initial mount so user's camera is never needlessly animated)
   const prevFloorViewRef = useRef<OfficeFloorView>(floorView);

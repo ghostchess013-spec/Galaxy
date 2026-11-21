@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { PORTRAIT_GALLERY } from '../../data/seedData';
+import { useI18n } from '../../i18n/translations';
 import type { Agent, AgentStatus, ChatMessage, ThemeId } from '../../types/nexora';
 import { compressImageToPortraitDataUrl } from '../AddAgentModal';
 import AgentOffice3D, {
@@ -49,6 +50,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   msg: ChatMessage;
   agentName: string;
 }) {
+  const { t, chatMessageDisplay } = useI18n();
   return (
     <div
       className={`flex flex-col ${
@@ -64,10 +66,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
       >
         {msg.attachmentName && (
           <p className="text-[10px] font-mono opacity-85 mb-1">
-            Attachment: {msg.attachmentName}
+            {t('commonAttachment')}: {msg.attachmentName}
           </p>
         )}
-        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+        <p className="whitespace-pre-wrap break-words">
+          {chatMessageDisplay(msg.id, msg.content)}
+        </p>
         {msg.toolTrace && msg.toolTrace.length > 0 && (
           <div className="mt-2 pt-1.5 border-t border-[var(--nx-border)] text-[10px] font-mono text-[var(--nx-text-muted)]">
             {msg.toolTrace.join(' · ')}
@@ -75,7 +79,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
         )}
       </div>
       <span className="mt-1 text-[10px] font-mono text-[var(--nx-text-subtle)]">
-        {msg.sender === 'operator' ? 'Operator' : agentName} · {msg.timestamp}
+        {msg.sender === 'operator' ? t('operatorRole') : agentName} · {msg.timestamp}
         {msg.latencyMs ? ` · ${msg.latencyMs}ms` : ''}
       </span>
     </div>
@@ -98,6 +102,7 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
   onOpenFullChat,
   onClose,
 }: InOfficeChatPanelProps) {
+  const { t, statusLabel } = useI18n();
   const [chatDraft, setChatDraft] = useState('');
   const [chatAttachment, setChatAttachment] = useState<string | null>(null);
   const chatFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -121,23 +126,25 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
     setChatAttachment(null);
   };
 
+  const floorPrefix = t('commonFloorShort');
+
   return (
     <aside
-      aria-label="In-Office Live Chat"
+      aria-label={t('officeChatPanelAria')}
       className="w-full lg:w-[370px] xl:w-[400px] shrink-0 h-[460px] lg:h-auto rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden [contain:strict]"
     >
       {/* Quick Agent Switcher Strip */}
       <div className="border-b border-[var(--nx-border)] px-3 py-2.5 bg-[var(--nx-surface)]/55">
         <div className="flex items-center justify-between gap-2 mb-2">
           <p className="text-[10px] tracking-[0.14em] uppercase font-semibold text-[var(--nx-text-muted)]">
-            Live Office Chat · {agents.length} Agents
+            {t('officeChatHeader', { count: agents.length })}
           </p>
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => onOpenFullChat(selectedAgent.id)}
-              title="Open full-screen Chat view"
-              aria-label="Open full-screen Chat view"
+              title={t('officeChatOpenFull')}
+              aria-label={t('officeChatOpenFull')}
               className="rounded-md p-1 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
             >
               <Maximize2 className="h-3.5 w-3.5" />
@@ -145,8 +152,8 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
             <button
               type="button"
               onClick={onClose}
-              title="Hide in-office chat"
-              aria-label="Hide in-office chat"
+              title={t('officeChatHideTitle')}
+              aria-label={t('officeChatHideTitle')}
               className="rounded-md p-1 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
             >
               <X className="h-3.5 w-3.5" />
@@ -201,9 +208,8 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
                 {selectedAgent.name}
               </h2>
               <span className="font-mono text-[10px] rounded bg-[var(--nx-surface)] border border-[var(--nx-border)] px-1.5 py-0.5 text-[var(--nx-text-muted)] shrink-0">
-                {selectedAgent.status === 'working'
-                  ? 'Working · L1'
-                  : `Santai · L${selectedMood?.floor ?? 1}`}
+                {statusLabel(selectedAgent.status)} · {floorPrefix}
+                {selectedAgent.status === 'working' ? 1 : selectedMood?.floor ?? 1}
               </span>
             </div>
             <p className="text-[11px] text-[var(--nx-text-subtle)] truncate">
@@ -215,8 +221,8 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
         <button
           type="button"
           onClick={() => onClearThread(selectedAgent.id)}
-          title="Forget thread"
-          aria-label={`Clear chat thread with ${selectedAgent.name}`}
+          title={t('officeChatClearTitle')}
+          aria-label={t('officeChatClearAria', { name: selectedAgent.name })}
           className="rounded-lg border border-[var(--nx-border)] p-1.5 text-[var(--nx-text-muted)] hover:text-[var(--nx-alert)] hover:border-[var(--nx-alert)]/40 cursor-pointer shrink-0"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -237,12 +243,11 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
               className="h-12 w-12 rounded-full object-cover object-top border border-[var(--nx-border-strong)] mb-3"
             />
             <p className="font-editorial text-xl text-[var(--nx-text)]">
-              Chat langsung dengan{' '}
+              {t('officeChatEmptyTitle')}{' '}
               <span className="italic text-[var(--nx-accent)]">{selectedAgent.name}.</span>
             </p>
             <p className="mt-1.5 text-xs text-[var(--nx-text-muted)] leading-relaxed">
-              Kirim pesan di sini — jika sedang santai atau tidur di Lantai 2,{' '}
-              {selectedAgent.name} akan langsung menuju meja kerjanya untuk mengerjakan tugas Anda.
+              {t('officeChatEmptyDesc', { name: selectedAgent.name })}
             </p>
           </div>
         ) : (
@@ -254,7 +259,7 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
         {isSending && (
           <div className="flex flex-col items-start">
             <div className="rounded-xl px-3.5 py-2.5 text-[11px] font-mono border border-[var(--nx-accent)]/40 bg-[var(--nx-accent-soft)] text-[var(--nx-text)]">
-              💻 {selectedAgent.name} sedang bekerja di meja & menyiapkan balasan...
+              {t('officeChatWorkingBubble', { name: selectedAgent.name })}
             </div>
           </div>
         )}
@@ -267,11 +272,13 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
       >
         {chatAttachment && (
           <div className="mb-2 flex items-center justify-between rounded-md border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-2.5 py-1 text-[11px] text-[var(--nx-text-muted)]">
-            <span className="font-mono truncate">Attached: {chatAttachment}</span>
+            <span className="font-mono truncate">
+              {t('commonAttached')}: {chatAttachment}
+            </span>
             <button
               type="button"
               onClick={() => setChatAttachment(null)}
-              aria-label="Remove attachment"
+              aria-label={t('commonRemoveAttachment')}
               className="p-0.5 hover:text-[var(--nx-text)] cursor-pointer"
             >
               <X className="h-3 w-3" />
@@ -292,21 +299,21 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
           <button
             type="button"
             onClick={() => chatFileInputRef.current?.click()}
-            aria-label="Attach file to office chat"
+            aria-label={t('commonAttachFile')}
             className="rounded-lg border border-[var(--nx-border-strong)] p-2 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer shrink-0"
           >
             <Paperclip className="h-3.5 w-3.5" />
           </button>
 
           <label htmlFor="office-live-chat-input" className="sr-only">
-            Chat langsung dengan {selectedAgent.name}
+            {t('officeChatInputAria', { name: selectedAgent.name })}
           </label>
           <input
             id="office-live-chat-input"
             type="text"
             value={chatDraft}
             onChange={(e) => setChatDraft(e.target.value)}
-            placeholder={`Chat dengan ${selectedAgent.name}...`}
+            placeholder={t('officeChatInputPlaceholder', { name: selectedAgent.name })}
             className="flex-1 min-w-0 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 text-[16px] sm:text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
           />
           <button
@@ -316,7 +323,7 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] disabled:opacity-50 whitespace-nowrap cursor-pointer shrink-0"
           >
             <Send className="h-3.5 w-3.5" />
-            <span>Send</span>
+            <span>{t('commonSend')}</span>
           </button>
         </div>
       </form>
@@ -357,6 +364,7 @@ const AgentCityView = memo(function AgentCityView({
   onClearThread,
   onOpenAsk,
 }: AgentCityViewProps) {
+  const { t, statusLabel, agentDisplay, portraitLabel } = useI18n();
   const [portraitModalOpen, setPortraitModalOpen] = useState(false);
   const [deleteConfirmAgent, setDeleteConfirmAgent] = useState<Agent | null>(null);
   const [avatarError, setAvatarError] = useState<string>('');
@@ -389,6 +397,7 @@ const AgentCityView = memo(function AgentCityView({
 
   const selectedAgent =
     agents.find((a) => a.id === selectedAgentId) ?? agents.find((a) => a.isHQ) ?? agents[0];
+  const selectedDisp = selectedAgent ? agentDisplay(selectedAgent) : null;
 
   const workingCount = agents.filter((a) => a.status === 'working').length;
   const idleCount = agents.filter((a) => a.status === 'idle').length;
@@ -408,9 +417,11 @@ const AgentCityView = memo(function AgentCityView({
       onUpdateAvatar(selectedAgent.id, dataUrl);
       setPortraitModalOpen(false);
     } catch {
-      setAvatarError('Could not process photo. Choose a JPG, PNG, or WebP image.');
+      setAvatarError(t('officePortraitError'));
     }
   };
+
+  const floorPrefix = t('commonFloorShort');
 
   return (
     <div className="flex flex-col lg:h-[calc(100vh-5.5rem)] lg:min-h-[640px] gap-4">
@@ -419,12 +430,12 @@ const AgentCityView = memo(function AgentCityView({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-[230px] sm:min-w-[295px]">
             <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-              GALAXY / 3D AI Agent Office · 2 Lantai
+              {t('officeEyebrow')}
             </p>
             <h1 className="font-editorial text-2xl sm:text-3xl leading-tight mt-0.5 text-[var(--nx-text)] whitespace-nowrap">
-              Your office is{' '}
+              {t('officeTitle')}{' '}
               <span className="italic text-[var(--nx-accent)]">
-                {workingCount > 0 ? 'alive.' : 'relaxing.'}
+                {workingCount > 0 ? t('officeTitleAlive') : t('officeTitleRelaxing')}
               </span>
             </h1>
           </div>
@@ -432,7 +443,7 @@ const AgentCityView = memo(function AgentCityView({
           <div className="flex flex-wrap items-center gap-5">
             <div>
               <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
-                Meja & Kasur (1:1)
+                {t('officeKpiDesksBeds')}
               </p>
               <p className="font-mono text-xl sm:text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
                 {agents.length}
@@ -440,16 +451,19 @@ const AgentCityView = memo(function AgentCityView({
             </div>
             <div>
               <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
-                Working / Santai
+                {t('officeKpiWorkingIdle')}
               </p>
               <p className="font-mono text-xl sm:text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
                 {workingCount}
-                <span className="text-sm font-normal text-[var(--nx-text-muted)]"> / {idleCount}</span>
+                <span className="text-sm font-normal text-[var(--nx-text-muted)]">
+                  {' '}
+                  / {idleCount}
+                </span>
               </p>
             </div>
             <div className="hidden sm:block">
               <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
-                Sessions (7d)
+                {t('officeKpiSessions7d')}
               </p>
               <p className="font-mono text-xl sm:text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
                 {totalSessions}
@@ -457,7 +471,7 @@ const AgentCityView = memo(function AgentCityView({
             </div>
             <div className="hidden xl:block">
               <p className="text-[10px] tracking-[0.12em] uppercase text-[var(--nx-text-muted)]">
-                Tokens this month
+                {t('officeKpiTokensMonth')}
               </p>
               <p className="font-mono text-xl sm:text-2xl font-semibold text-[var(--nx-text)] tabular-nums">
                 {(totalTokens / 1_000_000).toFixed(1)}M
@@ -476,7 +490,7 @@ const AgentCityView = memo(function AgentCityView({
                 }`}
               >
                 <MessageSquare className="h-4 w-4" />
-                <span>{chatDrawerOpen ? 'Hide Chat' : 'Live Chat'}</span>
+                <span>{chatDrawerOpen ? t('officeHideChat') : t('officeLiveChat')}</span>
               </button>
 
               <button
@@ -485,7 +499,7 @@ const AgentCityView = memo(function AgentCityView({
                 className="inline-flex items-center gap-2 rounded-lg bg-[var(--nx-accent)] px-3.5 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] transition-colors whitespace-nowrap cursor-pointer"
               >
                 <UserPlus className="h-4 w-4" />
-                <span>Add Agent</span>
+                <span>{t('cockpitAddAgentBtn')}</span>
               </button>
             </div>
           </div>
@@ -506,31 +520,50 @@ const AgentCityView = memo(function AgentCityView({
             onSelectedMoodChange={setSelectedMood}
           />
 
-          {/* Collapsible Unified Bottom Control & Inspector Dock (no backdrop-blur over WebGL) */}
+          {/* Collapsible Unified Bottom Control & Inspector Dock */}
           <div className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-col items-center px-3">
             <button
               type="button"
               onClick={() => setDockCollapsed((v) => !v)}
               className="pointer-events-auto mb-1.5 inline-flex items-center gap-1.5 rounded-t-lg border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] px-3 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] cursor-pointer"
             >
-              {dockCollapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              <span>{dockCollapsed ? 'Show Office Controls' : 'Hide Office Controls'}</span>
+              {dockCollapsed ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+              <span>{dockCollapsed ? t('officeShowControls') : t('officeHideControls')}</span>
             </button>
 
-            {!dockCollapsed && selectedAgent && (
+            {!dockCollapsed && selectedAgent && selectedDisp && (
               <div className="pointer-events-auto w-full max-w-4xl rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)]/95 px-3.5 py-2.5 shadow-2xl space-y-2">
                 {/* Row 1: Floor View Switcher + Room Camera Presets */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--nx-border)]">
                   <div
                     className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-1"
                     role="group"
-                    aria-label="Floor view mode"
+                    aria-label={t('officeFloorAria')}
                   >
                     {(
                       [
-                        { id: 'all', label: '2 Lantai', shortLabel: '2 Lantai', icon: Layers },
-                        { id: 'floor1', label: 'Lantai 1 · Kantor', shortLabel: 'L1 Kantor', icon: Users },
-                        { id: 'floor2', label: 'Lantai 2 · Kamar Tidur', shortLabel: 'L2 Kamar', icon: BedDouble },
+                        {
+                          id: 'all',
+                          label: t('officeFloorAll'),
+                          shortLabel: t('officeFloorAllShort'),
+                          icon: Layers,
+                        },
+                        {
+                          id: 'floor1',
+                          label: t('officeFloor1'),
+                          shortLabel: t('officeFloor1Short'),
+                          icon: Users,
+                        },
+                        {
+                          id: 'floor2',
+                          label: t('officeFloor2'),
+                          shortLabel: t('officeFloor2Short'),
+                          icon: BedDouble,
+                        },
                       ] as const
                     ).map((item) => {
                       const Icon = item.icon;
@@ -563,7 +596,7 @@ const AgentCityView = memo(function AgentCityView({
                       className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
                     >
                       <Compass className="h-3 w-3" />
-                      <span>Overview</span>
+                      <span>{t('officeCamOverview')}</span>
                     </button>
                     <button
                       type="button"
@@ -573,7 +606,7 @@ const AgentCityView = memo(function AgentCityView({
                       className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
                     >
                       <Crosshair className="h-3 w-3" />
-                      <span>Focus</span>
+                      <span>{t('officeCamFocus')}</span>
                     </button>
                     <button
                       type="button"
@@ -583,7 +616,7 @@ const AgentCityView = memo(function AgentCityView({
                       }}
                       className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
                     >
-                      <span>Meeting</span>
+                      <span>{t('officeCamMeeting')}</span>
                     </button>
                     <button
                       type="button"
@@ -594,7 +627,7 @@ const AgentCityView = memo(function AgentCityView({
                       className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
                     >
                       <Sofa className="h-3 w-3" />
-                      <span>Ruang Tamu</span>
+                      <span>{t('officeCamLounge')}</span>
                     </button>
                     <button
                       type="button"
@@ -605,7 +638,7 @@ const AgentCityView = memo(function AgentCityView({
                       className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
                     >
                       <BedDouble className="h-3 w-3" />
-                      <span>Kamar L2</span>
+                      <span>{t('officeCamDorm')}</span>
                     </button>
                   </div>
                 </div>
@@ -619,8 +652,8 @@ const AgentCityView = memo(function AgentCityView({
                         setAvatarError('');
                         setPortraitModalOpen(true);
                       }}
-                      title="Change agent portrait"
-                      aria-label={`Change portrait for ${selectedAgent.name}`}
+                      title={t('officeChangePortraitTitle')}
+                      aria-label={t('officeChangePortraitAria', { name: selectedAgent.name })}
                       className="group relative h-9 w-9 rounded-full overflow-hidden border border-[var(--nx-border-strong)] hover:border-[var(--nx-accent)] shrink-0 cursor-pointer"
                     >
                       <img
@@ -640,26 +673,27 @@ const AgentCityView = memo(function AgentCityView({
                         </span>
                         <span className="text-xs text-[var(--nx-text-muted)]">·</span>
                         <span className="text-xs text-[var(--nx-text-muted)] truncate">
-                          {selectedAgent.role}
+                          {selectedDisp.role}
                         </span>
                         <span className="font-mono text-[10px] rounded bg-[var(--nx-surface)] border border-[var(--nx-border)] px-1.5 py-0.5 text-[var(--nx-text-subtle)]">
-                          L{selectedMood?.floor ?? 1}
+                          {floorPrefix}
+                          {selectedMood?.floor ?? 1}
                         </span>
                       </div>
                       <p className="text-xs text-[var(--nx-text-subtle)] truncate max-w-xs xl:max-w-md">
                         {selectedAgent.status === 'working'
-                          ? `💻 ${selectedAgent.currentTask}`
-                          : selectedMood?.thought ?? selectedAgent.currentTask}
+                          ? `💻 ${selectedDisp.task}`
+                          : selectedMood?.thought ?? selectedDisp.task}
                       </p>
                     </div>
                   </div>
 
-                  {/* Live Status Switcher + Chat / Brief / Retire */}
+                  {/* Live Status Switcher + Chat / Brief / Delete */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <div
                       className="flex items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-0.5"
                       role="group"
-                      aria-label={`Set status for ${selectedAgent.name}`}
+                      aria-label={t('officeSetStatusAria', { name: selectedAgent.name })}
                     >
                       {(['idle', 'working', 'alert'] as AgentStatus[]).map((st) => {
                         const active = selectedAgent.status === st;
@@ -668,13 +702,13 @@ const AgentCityView = memo(function AgentCityView({
                             key={st}
                             type="button"
                             onClick={() => onUpdateStatus(selectedAgent.id, st)}
-                            className={`rounded-md px-2 py-1 text-[11px] font-medium capitalize whitespace-nowrap transition-colors cursor-pointer ${
+                            className={`rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
                               active
                                 ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]'
                                 : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
                             }`}
                           >
-                            {st}
+                            {statusLabel(st)}
                           </button>
                         );
                       })}
@@ -690,7 +724,7 @@ const AgentCityView = memo(function AgentCityView({
                       }`}
                     >
                       <MessageSquare className="h-3.5 w-3.5" />
-                      <span>Chat</span>
+                      <span>{t('officeBtnChat')}</span>
                     </button>
 
                     <button
@@ -699,7 +733,7 @@ const AgentCityView = memo(function AgentCityView({
                       className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-surface-hover)] px-2.5 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-accent)] hover:text-[var(--nx-accent-fg)] whitespace-nowrap transition-colors cursor-pointer"
                     >
                       <Rocket className="h-3.5 w-3.5" />
-                      <span>Brief</span>
+                      <span>{t('officeBtnBrief')}</span>
                     </button>
 
                     {!selectedAgent.isHQ && selectedAgent.profileKey !== 'vps-guardian' && (
@@ -707,8 +741,8 @@ const AgentCityView = memo(function AgentCityView({
                         type="button"
                         onClick={() => setDeleteConfirmAgent(selectedAgent)}
                         className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-alert)]/40 px-2 py-1.5 text-xs font-medium text-[var(--nx-alert)] hover:bg-[var(--nx-alert)]/15 whitespace-nowrap transition-colors cursor-pointer"
-                        aria-label={`Hapus agent ${selectedAgent.name}`}
-                        title={`Hapus agent ${selectedAgent.name}`}
+                        aria-label={t('officeDeleteAgentAria', { name: selectedAgent.name })}
+                        title={t('officeDeleteAgentAria', { name: selectedAgent.name })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -749,16 +783,20 @@ const AgentCityView = memo(function AgentCityView({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-                  Agent Portrait · {selectedAgent.profileKey}
+                  {t('officePortraitEyebrow', { profile: selectedAgent.profileKey })}
                 </p>
-                <h2 id="portrait-editor-heading" className="font-editorial text-2xl mt-0.5 text-[var(--nx-text)]">
-                  Update <span className="italic text-[var(--nx-accent)]">{selectedAgent.name}.</span>
+                <h2
+                  id="portrait-editor-heading"
+                  className="font-editorial text-2xl mt-0.5 text-[var(--nx-text)]"
+                >
+                  {t('officePortraitTitle')}{' '}
+                  <span className="italic text-[var(--nx-accent)]">{selectedAgent.name}.</span>
                 </h2>
               </div>
               <button
                 type="button"
                 onClick={() => setPortraitModalOpen(false)}
-                aria-label="Close portrait dialog"
+                aria-label={t('officePortraitCloseAria')}
                 className="rounded-lg p-1.5 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
               >
                 <X className="h-4 w-4" />
@@ -768,6 +806,7 @@ const AgentCityView = memo(function AgentCityView({
             <div className="grid grid-cols-3 gap-3">
               {PORTRAIT_GALLERY.map((item) => {
                 const active = selectedAgent.avatarUrl === item.url;
+                const lbl = portraitLabel(item.id, item.label);
                 return (
                   <button
                     key={item.id}
@@ -784,12 +823,12 @@ const AgentCityView = memo(function AgentCityView({
                   >
                     <img
                       src={item.url}
-                      alt={item.label}
+                      alt={lbl}
                       referrerPolicy="no-referrer"
                       className="h-16 w-16 rounded-full object-cover object-top border border-[var(--nx-border-strong)]"
                     />
                     <span className="text-[11px] font-medium text-[var(--nx-text-muted)] group-hover:text-[var(--nx-text)]">
-                      {item.label}
+                      {lbl}
                     </span>
                   </button>
                 );
@@ -798,7 +837,7 @@ const AgentCityView = memo(function AgentCityView({
 
             <div className="flex items-center justify-between gap-3 pt-2 border-t border-[var(--nx-border)]">
               <span className="text-[11px] text-[var(--nx-text-muted)]">
-                Saved to ~/.hermes/ metadata when Live
+                {t('officePortraitHint')}
               </span>
               <input
                 ref={editFileInputRef}
@@ -813,7 +852,7 @@ const AgentCityView = memo(function AgentCityView({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3.5 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap cursor-pointer"
               >
                 <Upload className="h-3.5 w-3.5" />
-                <span>Upload Custom Photo</span>
+                <span>{t('officePortraitUploadBtn')}</span>
               </button>
             </div>
             {avatarError && <p className="text-xs text-[var(--nx-alert)]">{avatarError}</p>}
@@ -842,20 +881,23 @@ const AgentCityView = memo(function AgentCityView({
                 </span>
                 <div>
                   <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-alert)] font-semibold">
-                    Persetujuan Penghapusan
+                    {t('officeDeleteEyebrow')}
                   </p>
                   <h2
                     id="delete-agent-confirm-title"
                     className="font-editorial text-2xl mt-0.5 text-[var(--nx-text)]"
                   >
-                    Hapus <span className="italic text-[var(--nx-alert)]">{deleteConfirmAgent.name}?</span>
+                    {t('officeDeleteTitle')}{' '}
+                    <span className="italic text-[var(--nx-alert)]">
+                      {deleteConfirmAgent.name}?
+                    </span>
                   </h2>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setDeleteConfirmAgent(null)}
-                aria-label="Tutup dialog konfirmasi hapus"
+                aria-label={t('officeDeleteCloseAria')}
                 className="rounded-lg p-1.5 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
               >
                 <X className="h-4 w-4" />
@@ -874,7 +916,7 @@ const AgentCityView = memo(function AgentCityView({
                   {deleteConfirmAgent.name}
                 </p>
                 <p className="text-xs text-[var(--nx-text-muted)] truncate">
-                  {deleteConfirmAgent.role}
+                  {agentDisplay(deleteConfirmAgent).role}
                 </p>
                 <p className="font-mono text-[10px] text-[var(--nx-text-subtle)] truncate mt-0.5">
                   ~/.hermes/profiles/{deleteConfirmAgent.profileKey}
@@ -886,8 +928,7 @@ const AgentCityView = memo(function AgentCityView({
               id="delete-agent-confirm-desc"
               className="text-xs leading-relaxed text-[var(--nx-text-muted)]"
             >
-              Tindakan ini akan menghapus profil agent di Hermes, meja kerjanya di Lantai 1, kasurnya di
-              Lantai 2, serta riwayat chat lokalnya dari dashboard. Pastikan Anda tidak salah tekan.
+              {t('officeDeleteDesc')}
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[var(--nx-border)]">
@@ -896,7 +937,7 @@ const AgentCityView = memo(function AgentCityView({
                 onClick={() => setDeleteConfirmAgent(null)}
                 className="rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-4 py-2 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] transition-colors cursor-pointer"
               >
-                Batal
+                {t('commonCancel')}
               </button>
               <button
                 type="button"
@@ -908,7 +949,7 @@ const AgentCityView = memo(function AgentCityView({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-alert)] px-4 py-2 text-xs font-semibold text-white hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                <span>Ya, Hapus Agent</span>
+                <span>{t('officeDeleteConfirmBtn')}</span>
               </button>
             </div>
           </div>

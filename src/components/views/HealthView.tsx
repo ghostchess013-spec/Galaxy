@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { RefreshCw, RotateCcw } from 'lucide-react';
+import { useI18n } from '../../i18n/translations';
 import type {
   Agent,
   BridgeConnectionStatus,
@@ -29,6 +30,7 @@ export default function HealthView({
   onRunDiagnostics,
   onRestartService,
 }: HealthViewProps) {
+  const { t, lang, healthCheckDisplay, logMessageDisplay } = useI18n();
   const [catFilter, setCatFilter] = useState<'all' | HealthCheck['category']>('all');
   const [running, setRunning] = useState(false);
   const [restartingUnit, setRestartingUnit] = useState<string | null>(null);
@@ -59,8 +61,8 @@ export default function HealthView({
     : '4 OCPU ARM64';
   const ramUsed = liveTelemetry?.connected ? `${liveTelemetry.ram.used_gb} GB` : '5.4 GB';
   const ramSub = liveTelemetry?.connected
-    ? `of ${liveTelemetry.ram.total_gb} GB RAM`
-    : 'of 24 GB RAM';
+    ? t('healthOfRam', { total: liveTelemetry.ram.total_gb })
+    : t('healthOfRam', { total: 24 });
   const diskPct = liveTelemetry?.connected ? `${liveTelemetry.disk.percent}%` : '31%';
   const diskSub = liveTelemetry?.connected
     ? `${liveTelemetry.disk.used_gb} / ${liveTelemetry.disk.total_gb} GB`
@@ -68,28 +70,46 @@ export default function HealthView({
   const vps2Stat = liveTelemetry?.command_node
     ? `${liveTelemetry.command_node.cpu_percent}%`
     : '24ms';
-  const vps2Label = liveTelemetry?.command_node ? 'VPS 2 CPU' : 'Mesh RTT';
+  const vps2Label = liveTelemetry?.command_node ? t('healthVps2Cpu') : t('healthMeshRtt');
   const vps2Sub = liveTelemetry?.command_node
     ? `${liveTelemetry.command_node.ram_used_gb} / ${liveTelemetry.command_node.ram_total_gb} GB RAM`
-    : 'Direct peer';
+    : t('healthDirectPeer');
+
+  const categoryLabels: Record<'all' | HealthCheck['category'], string> = {
+    all: t('healthCatAll'),
+    core: t('healthCatCore'),
+    network: t('healthCatNetwork'),
+    agents: t('healthCatAgents'),
+    storage: t('healthCatStorage'),
+  };
+
+  const localizeUnitState = (state: string) => {
+    if (lang !== 'id') return state;
+    const low = state.toLowerCase();
+    if (low === 'active' || low === 'running') return 'aktif';
+    if (low === 'inactive' || low === 'dead' || low === 'stopped') return 'nonaktif';
+    if (low === 'failed') return 'gagal';
+    return state;
+  };
 
   return (
     <div className="space-y-6 pb-8">
-      {/* Hero Banner matching NEXORA 3.0 Health panel */}
       <section className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-6">
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="max-w-xl">
             <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-              GALAXY / System Health · {bridgeStatus === 'live' ? 'Live Bridge' : 'Demo Snapshot'}
+              {bridgeStatus === 'live' ? t('healthEyebrowLive') : t('healthEyebrowDemo')}
             </p>
             <h1 className="font-editorial text-4xl leading-tight mt-1 text-[var(--nx-text)]">
-              The machine is{' '}
+              {t('cockpitMachinePrefix')}{' '}
               <span className="italic text-[var(--nx-accent)]">
-                {summary.label === 'Optimal' ? 'quiet and well.' : 'flagging a warning.'}
+                {summary.label === 'Optimal'
+                  ? t('cockpitMachineWell')
+                  : t('cockpitMachineWarn')}
               </span>
             </h1>
             <p className="mt-2 text-sm text-[var(--nx-text-muted)]">
-              Live telemetry for primary host{' '}
+              {t('healthLiveHostPrefix')}{' '}
               <span className="font-mono text-[var(--nx-text)]">
                 {liveTelemetry?.host ?? 'hermesagent (100.72.221.36)'}
               </span>{' '}
@@ -99,7 +119,7 @@ export default function HealthView({
             <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-[var(--nx-text-muted)]">
-                  CPU Load
+                  {t('healthCpuLoad')}
                 </p>
                 <p className="font-mono text-xl font-semibold text-[var(--nx-text)] tabular-nums mt-0.5">
                   {cpuPct}
@@ -108,7 +128,7 @@ export default function HealthView({
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-[var(--nx-text-muted)]">
-                  Memory
+                  {t('healthMemory')}
                 </p>
                 <p className="font-mono text-xl font-semibold text-[var(--nx-text)] tabular-nums mt-0.5">
                   {ramUsed}
@@ -117,7 +137,7 @@ export default function HealthView({
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-[var(--nx-text-muted)]">
-                  NVMe Disk
+                  {t('healthNvmeDisk')}
                 </p>
                 <p className="font-mono text-xl font-semibold text-[var(--nx-text)] tabular-nums mt-0.5">
                   {diskPct}
@@ -149,7 +169,7 @@ export default function HealthView({
               className="inline-flex items-center gap-2 rounded-lg border border-[var(--nx-border-strong)] px-3.5 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${running ? 'animate-spin' : ''}`} />
-              <span>Run 21-Point Diagnostic</span>
+              <span>{t('healthRunDiagBtn')}</span>
             </button>
           </div>
         </div>
@@ -159,10 +179,10 @@ export default function HealthView({
           <div className="mt-6 pt-5 border-t border-[var(--nx-border)]">
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className="text-xs font-medium text-[var(--nx-text)]">
-                Live Systemd Services on hermesagent
+                {t('healthSystemdTitle')}
               </p>
               <span className="font-mono text-[11px] text-[var(--nx-text-subtle)]">
-                Synced {liveTelemetry.timestamp} UTC
+                {t('healthSyncedAt', { ts: liveTelemetry.timestamp })}
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -179,7 +199,7 @@ export default function HealthView({
                       className="font-mono text-[10px] uppercase mt-0.5"
                       style={{ color: svc.healthy ? 'var(--nx-idle)' : 'var(--nx-alert)' }}
                     >
-                      {svc.state}
+                      {localizeUnitState(svc.state)}
                       {svc.latency_ms ? ` · ${svc.latency_ms}ms` : ''}
                     </p>
                   </div>
@@ -192,7 +212,9 @@ export default function HealthView({
                     <RotateCcw
                       className={`h-3 w-3 ${restartingUnit === svc.unit ? 'animate-spin' : ''}`}
                     />
-                    <span>{restartingUnit === svc.unit ? 'Restarting...' : 'Restart'}</span>
+                    <span>
+                      {restartingUnit === svc.unit ? t('healthRestarting') : t('healthRestart')}
+                    </span>
                   </button>
                 </div>
               ))}
@@ -206,7 +228,8 @@ export default function HealthView({
         <section className="lg:col-span-7 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-5">
           <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[var(--nx-border)]">
             <h2 className="font-editorial text-2xl text-[var(--nx-text)]">
-              Service <span className="italic text-[var(--nx-accent)]">Probes.</span>
+              {t('healthProbesPrefix')}{' '}
+              <span className="italic text-[var(--nx-accent)]">{t('healthProbesAccent')}</span>
             </h2>
             <div className="flex items-center gap-1 rounded-lg bg-[var(--nx-surface)] p-1 border border-[var(--nx-border)]">
               {(['all', 'core', 'network', 'agents', 'storage'] as const).map((cat) => (
@@ -214,45 +237,48 @@ export default function HealthView({
                   key={cat}
                   type="button"
                   onClick={() => setCatFilter(cat)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize whitespace-nowrap cursor-pointer ${
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap cursor-pointer ${
                     catFilter === cat
                       ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]'
                       : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
                   }`}
                 >
-                  {cat}
+                  {categoryLabels[cat]}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="mt-2 divide-y divide-[var(--nx-border)] max-h-[460px] overflow-y-auto">
-            {filteredChecks.map((check) => (
-              <div key={check.id} className="py-3 flex items-center justify-between gap-4 text-xs">
-                <div className="min-w-0">
-                  <p className="font-medium text-[var(--nx-text)]">{check.name}</p>
-                  <p className="text-[11px] text-[var(--nx-text-muted)] truncate">{check.detail}</p>
+            {filteredChecks.map((check) => {
+              const hc = healthCheckDisplay(check);
+              return (
+                <div key={check.id} className="py-3 flex items-center justify-between gap-4 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-medium text-[var(--nx-text)]">{hc.name}</p>
+                    <p className="text-[11px] text-[var(--nx-text-muted)] truncate">{hc.detail}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span
+                      className="font-mono text-[11px] font-semibold uppercase"
+                      style={{
+                        color:
+                          check.status === 'fail'
+                            ? 'var(--nx-alert)'
+                            : check.status === 'warn'
+                              ? '#f59e0b'
+                              : 'var(--nx-idle)',
+                      }}
+                    >
+                      {hc.statusText}
+                    </span>
+                    <p className="font-mono text-[10px] text-[var(--nx-text-subtle)] tabular-nums">
+                      {check.latencyMs}ms
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <span
-                    className="font-mono text-[11px] font-semibold uppercase"
-                    style={{
-                      color:
-                        check.status === 'fail'
-                          ? 'var(--nx-alert)'
-                          : check.status === 'warn'
-                            ? '#f59e0b'
-                            : 'var(--nx-idle)',
-                    }}
-                  >
-                    {check.status}
-                  </span>
-                  <p className="font-mono text-[10px] text-[var(--nx-text-subtle)] tabular-nums">
-                    {check.latencyMs}ms
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -260,11 +286,10 @@ export default function HealthView({
         <section className="lg:col-span-5 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-5">
           <div className="pb-4 border-b border-[var(--nx-border)]">
             <h2 className="font-editorial text-2xl text-[var(--nx-text)]">
-              What they said <span className="italic text-[var(--nx-accent)]">to each other.</span>
+              {t('healthCommsTitlePrefix')}{' '}
+              <span className="italic text-[var(--nx-accent)]">{t('healthCommsTitleAccent')}</span>
             </h2>
-            <p className="text-xs text-[var(--nx-text-muted)] mt-0.5">
-              Audited inter-agent handoffs across Hermes channels
-            </p>
+            <p className="text-xs text-[var(--nx-text-muted)] mt-0.5">{t('healthCommsSub')}</p>
           </div>
 
           <div className="mt-3 space-y-3.5 max-h-[460px] overflow-y-auto pr-1">
@@ -288,7 +313,7 @@ export default function HealthView({
                     #{log.channel}
                   </p>
                   <p className="mt-1.5 text-xs text-[var(--nx-text-muted)] leading-relaxed">
-                    {log.message}
+                    {logMessageDisplay(log)}
                   </p>
                 </article>
               );

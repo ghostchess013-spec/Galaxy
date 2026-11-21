@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff, Send, Volume2, VolumeX } from 'lucide-react';
+import { useI18n } from '../../i18n/translations';
 import type { Agent, OperatorSettings } from '../../types/nexora';
 import { generateAgentReply } from '../../utils/nexoraLogic';
 
@@ -10,6 +11,7 @@ interface VoiceTurn {
   text: string;
   engine: string;
   timestamp: string;
+  isInit?: boolean;
 }
 
 interface VoiceModeViewProps {
@@ -23,23 +25,6 @@ interface VoiceModeViewProps {
   ) => Promise<{ replyText: string; audioBlob?: Blob; engineLabel: string }>;
 }
 
-const VOICE_ENGINES: Array<{
-  id: OperatorSettings['voiceEngine'];
-  label: string;
-  meta: string;
-}> = [
-  { id: 'voicestudio', label: 'VoiceStudio :3900', meta: 'Local Uvicorn · ~180ms' },
-  { id: 'piper', label: 'Piper Local', meta: 'Fast ARM64 CPU TTS' },
-  { id: 'kokoro', label: 'Kokoro v1', meta: 'Expressive Local Neural' },
-  { id: 'elevenlabs', label: 'ElevenLabs', meta: 'Cloud Studio Voice' },
-];
-
-const QUICK_VOICE_PROMPTS = [
-  'Give me a fleet and VPS health status update.',
-  'Which missions are waiting for my approval?',
-  'Summarize your role and operating rules.',
-];
-
 export default function VoiceModeView({
   agents,
   settings,
@@ -47,26 +32,50 @@ export default function VoiceModeView({
   onUpdateSettings,
   onLiveVoiceExchange,
 }: VoiceModeViewProps) {
+  const { lang, t, agentDisplay } = useI18n();
   const [activeAgentId, setActiveAgentId] = useState<string>(agents[0]?.id ?? 'executor');
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [manualText, setManualText] = useState('');
-  const [statusNote, setStatusNote] = useState('Ready — tap Talk or type a spoken prompt.');
+  const [customStatusNote, setCustomStatusNote] = useState<string | null>(null);
   const [turns, setTurns] = useState<VoiceTurn[]>([
     {
       id: 'vt-init',
       speaker: 'agent',
       agentName: 'Executor',
-      text: 'Voice link established on VoiceStudio :3900. All checks on hermesagent are monitored. Ready for your next move.',
+      text: '',
       engine: 'VoiceStudio :3900',
-      timestamp: 'Now',
+      timestamp: '',
+      isInit: true,
     },
   ]);
 
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
+  const activeDisp = agentDisplay(activeAgent);
+
+  const voiceEngines: Array<{
+    id: OperatorSettings['voiceEngine'];
+    label: string;
+    meta: string;
+  }> = [
+    { id: 'voicestudio', label: 'VoiceStudio :3900', meta: t('voiceEngineVoicestudioMeta') },
+    { id: 'piper', label: 'Piper', meta: t('voiceEnginePiperMeta') },
+    { id: 'kokoro', label: 'Kokoro v1', meta: t('voiceEngineKokoroMeta') },
+    { id: 'elevenlabs', label: 'ElevenLabs', meta: t('voiceEngineElevenlabsMeta') },
+  ];
+
+  const quickVoicePrompts = [
+    t('voiceQuickPrompt1'),
+    t('voiceQuickPrompt2'),
+    t('voiceQuickPrompt3'),
+  ];
+
+  useEffect(() => {
+    setCustomStatusNote(null);
+  }, [lang]);
 
   useEffect(() => {
     return () => {
@@ -110,6 +119,7 @@ export default function VoiceModeView({
     try {
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = lang === 'id' ? 'id-ID' : 'en-US';
       utter.rate = settings.voiceEngine === 'piper' ? 1.08 : 0.98;
       utter.pitch = activeAgent.isHQ ? 0.92 : 1.02;
       utter.onstart = () => setSpeaking(true);
@@ -126,7 +136,7 @@ export default function VoiceModeView({
     if (!clean || busy) return;
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const defaultEngineLabel =
-      VOICE_ENGINES.find((v) => v.id === settings.voiceEngine)?.label ?? 'VoiceStudio :3900';
+      voiceEngines.find((v) => v.id === settings.voiceEngine)?.label ?? 'VoiceStudio :3900';
 
     setTurns((prev) => [
       ...prev,
@@ -135,14 +145,14 @@ export default function VoiceModeView({
         speaker: 'operator',
         agentName: settings.operatorName,
         text: clean,
-        engine: 'Mic / Transcript',
+        engine: t('voiceEngineMic'),
         timestamp: now,
       },
     ]);
 
     if (bridgeStatus === 'live' && onLiveVoiceExchange) {
       setBusy(true);
-      setStatusNote(`Routing through 9Router & VoiceStudio :3900 for ${activeAgent.name}...`);
+      setCustomStatusNote(t('voiceStatusRouting', { name: activeAgent.name }));
       try {
         const res = await onLiveVoiceExchange(activeAgent, clean);
         setTurns((prev) => [
@@ -156,19 +166,21 @@ export default function VoiceModeView({
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           },
         ]);
-        setStatusNote(`${activeAgent.name} responded via ${res.engineLabel}.`);
+        setCustomStatusNote(
+          t('voiceStatusResponded', { name: activeAgent.name, engine: res.engineLabel }),
+        );
         speakOutLoud(res.replyText, res.audioBlob);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        setStatusNote(`Live voice error: ${errMsg}`);
+        setCustomStatusNote(t('voiceStatusLiveErr', { err: errMsg }));
         setTurns((prev) => [
           ...prev,
           {
             id: `vt-err-${Date.now() + 1}`,
             speaker: 'agent',
             agentName: activeAgent.name,
-            text: `Unable to reach live bridge (${errMsg}).`,
-            engine: 'Bridge Error',
+            text: t('voiceLiveErrReply', { err: errMsg }),
+            engine: t('voiceEngineBridgeErr'),
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           },
         ]);
@@ -178,7 +190,7 @@ export default function VoiceModeView({
       return;
     }
 
-    const reply = generateAgentReply(activeAgent, clean, agents);
+    const reply = generateAgentReply(activeAgent, clean, agents, lang);
     setTurns((prev) => [
       ...prev,
       {
@@ -190,7 +202,9 @@ export default function VoiceModeView({
         timestamp: now,
       },
     ]);
-    setStatusNote(`${activeAgent.name} responded via ${defaultEngineLabel}.`);
+    setCustomStatusNote(
+      t('voiceStatusResponded', { name: activeAgent.name, engine: defaultEngineLabel }),
+    );
     speakOutLoud(reply.text);
   };
 
@@ -198,7 +212,7 @@ export default function VoiceModeView({
     if (listening) {
       recognitionRef.current?.stop();
       setListening(false);
-      setStatusNote('Microphone stopped.');
+      setCustomStatusNote(t('voiceStatusMicStopped'));
       return;
     }
 
@@ -225,25 +239,23 @@ export default function VoiceModeView({
 
     const SR = win.SpeechRecognition || win.webkitSpeechRecognition;
     if (!SR) {
-      setStatusNote(
-        'Browser Speech Recognition unavailable here — use a quick voice prompt or the input bar below to hear spoken replies.',
-      );
+      setCustomStatusNote(t('voiceStatusSrUnavailable'));
       return;
     }
 
     try {
       const rec = new SR();
-      rec.lang = 'en-US';
+      rec.lang = lang === 'id' ? 'id-ID' : 'en-US';
       rec.interimResults = false;
       rec.onresult = (ev) => {
         const transcript = ev.results?.[0]?.[0]?.transcript ?? '';
         if (transcript) {
-          handleVoicePrompt(transcript);
+          void handleVoicePrompt(transcript);
         }
       };
       rec.onerror = () => {
         setListening(false);
-        setStatusNote('Microphone permission blocked — use the text prompt bar below.');
+        setCustomStatusNote(t('voiceStatusMicBlocked'));
       };
       rec.onend = () => {
         setListening(false);
@@ -251,36 +263,36 @@ export default function VoiceModeView({
       recognitionRef.current = rec;
       rec.start();
       setListening(true);
-      setStatusNote(`Listening for ${activeAgent.name}... speak clearly.`);
+      setCustomStatusNote(t('voiceStatusListening', { name: activeAgent.name }));
     } catch {
       setListening(false);
-      setStatusNote('Could not start microphone — use the prompt bar below.');
+      setCustomStatusNote(t('voiceStatusMicFailed'));
     }
   };
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualText.trim()) return;
-    handleVoicePrompt(manualText);
+    void handleVoicePrompt(manualText);
     setManualText('');
   };
 
+  const statusNote = customStatusNote ?? t('voiceStatusReady');
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-8">
-      {/* Main Voice Stage matching NEXORA 3.0 Left Panel */}
+      {/* Main Voice Stage */}
       <section className="lg:col-span-7 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-6 flex flex-col justify-between min-h-[600px]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-              GALAXY / Voice Mode
+              {t('voiceEyebrow')}
             </p>
             <h1 className="font-editorial text-4xl leading-tight mt-1 text-[var(--nx-text)]">
-              Intelligence,{' '}
-              <span className="italic text-[var(--nx-accent)]">within reach.</span>
+              {t('voiceTitlePrefix')}{' '}
+              <span className="italic text-[var(--nx-accent)]">{t('voiceTitleAccent')}</span>
             </h1>
-            <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">
-              A thought. A question. Your next move.
-            </p>
+            <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">{t('voiceSubtitle')}</p>
           </div>
 
           <button
@@ -293,7 +305,7 @@ export default function VoiceModeView({
             ) : (
               <VolumeX className="h-3.5 w-3.5 text-[var(--nx-text-muted)]" />
             )}
-            <span>{settings.autoSpeakReplies ? 'Spoken Audio On' : 'Audio Muted'}</span>
+            <span>{settings.autoSpeakReplies ? t('voiceAudioOn') : t('voiceAudioMuted')}</span>
           </button>
         </div>
 
@@ -319,7 +331,7 @@ export default function VoiceModeView({
             >
               <img
                 src={activeAgent.avatarUrl}
-                alt={`${activeAgent.name} voice avatar`}
+                alt={activeAgent.name}
                 referrerPolicy="no-referrer"
                 className="h-full w-full rounded-full object-cover object-top"
               />
@@ -328,7 +340,7 @@ export default function VoiceModeView({
 
           <div className="mt-4 text-center">
             <p className="text-sm font-semibold text-[var(--nx-text)]">
-              {activeAgent.name} · {activeAgent.buildingName}
+              {activeAgent.name} · {activeDisp.workstation}
             </p>
             <p className="text-xs text-[var(--nx-text-muted)] mt-0.5">{statusNote}</p>
           </div>
@@ -339,7 +351,9 @@ export default function VoiceModeView({
               <span
                 key={idx}
                 className={`w-1 rounded-full transition-all ${
-                  listening || speaking ? 'animate-voice-bar bg-[var(--nx-accent)]' : 'bg-[var(--nx-border-strong)]'
+                  listening || speaking
+                    ? 'animate-voice-bar bg-[var(--nx-accent)]'
+                    : 'bg-[var(--nx-border-strong)]'
                 }`}
                 style={{
                   height: listening || speaking ? `${12 + ((idx * 7) % 16)}px` : '6px',
@@ -356,25 +370,31 @@ export default function VoiceModeView({
             className="mt-5 inline-flex items-center gap-2.5 rounded-full bg-[var(--nx-accent)] px-8 py-3 text-sm font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] transition-colors whitespace-nowrap cursor-pointer shadow-lg"
           >
             {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            <span>{listening ? 'Stop Listening' : 'Talk'}</span>
+            <span>{listening ? t('voiceStopListening') : t('voiceTalkBtn')}</span>
           </button>
         </div>
 
         {/* Crew Portrait Selector Carousel */}
         <div className="border-t border-[var(--nx-border)] pt-4">
           <p className="text-[11px] text-[var(--nx-text-muted)] mb-3">
-            Select specialist on voice channel
+            {t('voiceSelectSpecialist')}
           </p>
           <div className="flex items-center gap-3 overflow-x-auto pb-1">
             {agents.slice(0, 8).map((agent) => {
               const selected = agent.id === activeAgent.id;
+              const disp = agentDisplay(agent);
               return (
                 <button
                   key={agent.id}
                   type="button"
                   onClick={() => {
                     setActiveAgentId(agent.id);
-                    setStatusNote(`Voice channel switched to ${agent.name} (${agent.buildingName}).`);
+                    setCustomStatusNote(
+                      t('voiceStatusSwitched', {
+                        name: agent.name,
+                        workstation: disp.workstation,
+                      }),
+                    );
                   }}
                   className="flex flex-col items-center gap-1.5 shrink-0 cursor-pointer group"
                 >
@@ -410,13 +430,12 @@ export default function VoiceModeView({
       <section className="lg:col-span-5 flex flex-col gap-5">
         <div className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-5">
           <h2 className="font-editorial text-xl text-[var(--nx-text)]">
-            Speech <span className="italic text-[var(--nx-accent)]">Engine.</span>
+            {t('voiceSpeechTitlePrefix')}{' '}
+            <span className="italic text-[var(--nx-accent)]">{t('voiceSpeechTitleAccent')}</span>
           </h2>
-          <p className="text-xs text-[var(--nx-text-muted)] mt-1">
-            Route spoken output through local VoiceStudio (:3900), Piper, Kokoro, or ElevenLabs.
-          </p>
+          <p className="text-xs text-[var(--nx-text-muted)] mt-1">{t('voiceSpeechDesc')}</p>
           <div className="mt-4 grid grid-cols-2 gap-2.5">
-            {VOICE_ENGINES.map((eng) => {
+            {voiceEngines.map((eng) => {
               const active = settings.voiceEngine === eng.id;
               return (
                 <button
@@ -440,37 +459,40 @@ export default function VoiceModeView({
         {/* Live Transcript + Fallback Voice Prompt Input */}
         <div className="flex-1 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-5 flex flex-col">
           <h2 className="font-editorial text-xl text-[var(--nx-text)]">
-            Live <span className="italic text-[var(--nx-accent)]">Transcript.</span>
+            {t('voiceTranscriptPrefix')}{' '}
+            <span className="italic text-[var(--nx-accent)]">{t('voiceTranscriptAccent')}</span>
           </h2>
 
           <div className="mt-3 flex-1 space-y-3 overflow-y-auto max-h-[290px] pr-1">
-            {turns.map((t) => (
+            {turns.map((turn) => (
               <div
-                key={t.id}
+                key={turn.id}
                 className={`rounded-lg p-3 border text-xs leading-relaxed ${
-                  t.speaker === 'operator'
+                  turn.speaker === 'operator'
                     ? 'border-[var(--nx-accent)]/35 bg-[var(--nx-accent-soft)]'
                     : 'border-[var(--nx-border)] bg-[var(--nx-surface)]'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[var(--nx-text-muted)] mb-1">
-                  <span className="font-semibold text-[var(--nx-text)]">{t.agentName}</span>
+                  <span className="font-semibold text-[var(--nx-text)]">{turn.agentName}</span>
                   <span>
-                    {t.engine} · {t.timestamp}
+                    {turn.engine} · {turn.isInit ? t('voiceInitTime') : turn.timestamp}
                   </span>
                 </div>
-                <p className="text-[var(--nx-text)]">{t.text}</p>
+                <p className="text-[var(--nx-text)]">
+                  {turn.isInit ? t('voiceInitGreeting') : turn.text}
+                </p>
               </div>
             ))}
           </div>
 
           <div className="mt-4 pt-3 border-t border-[var(--nx-border)]">
             <div className="flex flex-wrap gap-1.5 mb-3">
-              {QUICK_VOICE_PROMPTS.map((q) => (
+              {quickVoicePrompts.map((q) => (
                 <button
                   key={q}
                   type="button"
-                  onClick={() => handleVoicePrompt(q)}
+                  onClick={() => void handleVoicePrompt(q)}
                   className="rounded-md border border-[var(--nx-border)] bg-[var(--nx-surface)] px-2.5 py-1 text-[11px] text-[var(--nx-text-muted)] hover:border-[var(--nx-accent)] hover:text-[var(--nx-text)] transition-colors cursor-pointer text-left"
                 >
                   {q}
@@ -479,23 +501,23 @@ export default function VoiceModeView({
             </div>
             <form onSubmit={handleManualSubmit} className="flex items-center gap-2">
               <label htmlFor="voice-text-fallback" className="sr-only">
-                Speak or type prompt to {activeAgent.name}
+                {t('voiceInputAria', { name: activeAgent.name })}
               </label>
               <input
                 id="voice-text-fallback"
                 type="text"
                 value={manualText}
                 onChange={(e) => setManualText(e.target.value)}
-                placeholder={`Speak or type to ${activeAgent.name}...`}
+                placeholder={t('voiceInputPlaceholder', { name: activeAgent.name })}
                 className="flex-1 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
               />
               <button
                 type="submit"
-                aria-label="Send spoken prompt"
+                aria-label={t('voiceSendAria')}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3.5 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap cursor-pointer"
               >
                 <Send className="h-3.5 w-3.5" />
-                <span>Send</span>
+                <span>{t('commonSend')}</span>
               </button>
             </form>
           </div>

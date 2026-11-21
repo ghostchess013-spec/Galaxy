@@ -9,6 +9,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { useI18n } from '../../i18n/translations';
 import type { Agent, Mission, MissionStage, ReportLength } from '../../types/nexora';
 
 interface MissionsViewProps {
@@ -23,13 +24,6 @@ interface MissionsViewProps {
   onOpenDoc: (docId: string) => void;
 }
 
-const COLUMNS: Array<{ stage: MissionStage; label: string; subtitle: string }> = [
-  { stage: 'approval', label: 'Awaiting Approval', subtitle: 'Nothing runs without your OK' },
-  { stage: 'in_progress', label: 'In Progress', subtitle: 'Specialists actively executing' },
-  { stage: 'review', label: 'Ready for Review', subtitle: 'Awaiting final sign-off' },
-  { stage: 'delivered', label: 'Delivered', subtitle: 'Filed in Docs Library' },
-];
-
 export default function MissionsView({
   missions,
   agents,
@@ -41,6 +35,7 @@ export default function MissionsView({
   onDeliverMission,
   onOpenDoc,
 }: MissionsViewProps) {
+  const { t, missionDisplay, reportLengthLabel } = useI18n();
   const [composerOpen, setComposerOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState('');
@@ -50,10 +45,17 @@ export default function MissionsView({
   const [revisionNote, setRevisionNote] = useState('');
   const [stageFilter, setStageFilter] = useState<'all' | MissionStage>('all');
 
+  const columns: Array<{ stage: MissionStage; label: string; subtitle: string }> = [
+    { stage: 'approval', label: t('missionsColApproval'), subtitle: t('missionsColApprovalSub') },
+    { stage: 'in_progress', label: t('missionsColProgress'), subtitle: t('missionsColProgressSub') },
+    { stage: 'review', label: t('missionsColReview'), subtitle: t('missionsColReviewSub') },
+    { stage: 'delivered', label: t('missionsColDelivered'), subtitle: t('missionsColDeliveredSub') },
+  ];
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !goal.trim()) {
-      setFormError('Please provide both a mission title and an objective.');
+      setFormError(t('missionsFormError'));
       return;
     }
     onCreateMission(title, goal, length);
@@ -65,22 +67,20 @@ export default function MissionsView({
   };
 
   const visibleColumns =
-    stageFilter === 'all' ? COLUMNS : COLUMNS.filter((c) => c.stage === stageFilter);
+    stageFilter === 'all' ? columns : columns.filter((c) => c.stage === stageFilter);
 
   return (
     <div className="space-y-6 pb-8">
-      {/* Header matching hq3.jpg "The mission board." */}
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--nx-border)] pb-5">
         <div>
           <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-            GALAXY / Missions
+            {t('missionsEyebrow')}
           </p>
           <h1 className="font-editorial text-4xl leading-tight mt-1 text-[var(--nx-text)]">
-            The mission <span className="italic text-[var(--nx-accent)]">board.</span>
+            {t('missionsTitlePrefix')}{' '}
+            <span className="italic text-[var(--nx-accent)]">{t('missionsTitleAccent')}</span>
           </h1>
-          <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">
-            Every mission, from briefing to delivered. Nothing runs without your OK.
-          </p>
+          <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">{t('missionsSubtitle')}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -97,14 +97,14 @@ export default function MissionsView({
                 }`}
               >
                 {st === 'all'
-                  ? 'All'
+                  ? t('missionsFilterAll')
                   : st === 'approval'
-                    ? 'Approval'
+                    ? t('missionsFilterApproval')
                     : st === 'in_progress'
-                      ? 'Active'
+                      ? t('missionsFilterActive')
                       : st === 'review'
-                        ? 'Review'
-                        : 'Delivered'}
+                        ? t('missionsFilterReview')
+                        : t('missionsFilterDelivered')}
               </button>
             ))}
           </div>
@@ -115,7 +115,7 @@ export default function MissionsView({
             className="inline-flex items-center gap-2 rounded-lg bg-[var(--nx-accent)] px-4 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            <span>Launch Mission</span>
+            <span>{t('missionsLaunchBtn')}</span>
           </button>
         </div>
       </div>
@@ -129,16 +129,17 @@ export default function MissionsView({
           <div className="flex items-center justify-between gap-2">
             <div>
               <h2 className="font-editorial text-2xl text-[var(--nx-text)]">
-                New Mission <span className="italic text-[var(--nx-accent)]">Briefing.</span>
+                {t('missionsComposerPrefix')}{' '}
+                <span className="italic text-[var(--nx-accent)]">
+                  {t('missionsComposerAccent')}
+                </span>
               </h2>
-              <p className="text-xs text-[var(--nx-text-muted)]">
-                Executor will select the specialists, draft a step-by-step plan, and pause for your approval.
-              </p>
+              <p className="text-xs text-[var(--nx-text-muted)]">{t('missionsComposerDesc')}</p>
             </div>
             <button
               type="button"
               onClick={() => setComposerOpen(false)}
-              aria-label="Close new mission composer"
+              aria-label={t('missionsComposerCloseAria')}
               className="rounded-lg p-1.5 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] cursor-pointer"
             >
               <X className="h-4 w-4" />
@@ -147,8 +148,11 @@ export default function MissionsView({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="mission-title" className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5">
-                Mission Title
+              <label
+                htmlFor="mission-title"
+                className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5"
+              >
+                {t('missionsFieldTitle')}
               </label>
               <input
                 id="mission-title"
@@ -158,14 +162,14 @@ export default function MissionsView({
                   setTitle(e.target.value);
                   if (formError) setFormError('');
                 }}
-                placeholder="e.g. Audit VPS Security & SSL Renewal"
+                placeholder={t('missionsFieldTitlePlaceholder')}
                 className="w-full rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3.5 py-2 text-sm text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
               />
             </div>
 
             <div>
               <span className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5">
-                Finished Report Length
+                {t('missionsFieldLength')}
               </span>
               <div className="flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] p-1">
                 {(['brief', 'standard', 'deep_dive'] as ReportLength[]).map((opt) => (
@@ -179,7 +183,7 @@ export default function MissionsView({
                         : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
                     }`}
                   >
-                    {opt === 'brief' ? 'Brief (1p)' : opt === 'standard' ? 'Standard' : 'Deep Dive'}
+                    {opt === 'brief' ? t('missionsLengthBriefShort') : reportLengthLabel(opt)}
                   </button>
                 ))}
               </div>
@@ -187,8 +191,11 @@ export default function MissionsView({
           </div>
 
           <div>
-            <label htmlFor="mission-goal" className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5">
-              Objective & Constraints
+            <label
+              htmlFor="mission-goal"
+              className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5"
+            >
+              {t('missionsFieldGoal')}
             </label>
             <textarea
               id="mission-goal"
@@ -198,7 +205,7 @@ export default function MissionsView({
                 setGoal(e.target.value);
                 if (formError) setFormError('');
               }}
-              placeholder="Explain what outcome you want, which servers/files matter, and any guardrails..."
+              placeholder={t('missionsFieldGoalPlaceholder')}
               className="w-full rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3.5 py-2 text-sm text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
             />
           </div>
@@ -211,13 +218,13 @@ export default function MissionsView({
               onClick={() => setComposerOpen(false)}
               className="rounded-lg border border-[var(--nx-border-strong)] px-4 py-2 text-xs font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] cursor-pointer"
             >
-              Cancel
+              {t('commonCancel')}
             </button>
             <button
               type="submit"
               className="rounded-lg bg-[var(--nx-accent)] px-4 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap cursor-pointer"
             >
-              Draft Plan with Executor
+              {t('missionsSubmitBtn')}
             </button>
           </div>
         </form>
@@ -248,11 +255,12 @@ export default function MissionsView({
 
               {items.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-[var(--nx-border)] p-5 text-center text-xs text-[var(--nx-text-subtle)]">
-                  No missions in {col.label.toLowerCase()}.
+                  {t('missionsEmptyCol', { col: col.label.toLowerCase() })}
                 </div>
               ) : (
                 <div className="space-y-3">
                   {items.map((mission) => {
+                    const m = missionDisplay(mission);
                     const team = mission.assignedAgentIds
                       .map((id) => agents.find((a) => a.id === id)?.name ?? id)
                       .join(' · ');
@@ -264,21 +272,23 @@ export default function MissionsView({
                       >
                         <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[var(--nx-text-muted)]">
                           <span>
-                            {mission.code} · {mission.reportLength.replace('_', ' ')}
+                            {mission.code} · {reportLengthLabel(mission.reportLength)}
                           </span>
-                          <span>{mission.updatedAgo}</span>
+                          <span>{m.updatedAgo}</span>
                         </div>
 
                         <div>
                           <h3 className="text-sm font-semibold text-[var(--nx-text)] leading-snug">
-                            {mission.title}
+                            {m.title}
                           </h3>
                           <p className="mt-1 text-xs text-[var(--nx-text-muted)] leading-relaxed">
-                            {mission.planSummary}
+                            {m.planSummary}
                           </p>
                         </div>
 
-                        <p className="text-[11px] text-[var(--nx-text-subtle)]">Crew: {team}</p>
+                        <p className="text-[11px] text-[var(--nx-text-subtle)]">
+                          {t('missionsCrewPrefix')}: {team}
+                        </p>
 
                         {/* Step Progress Checklist */}
                         <ul className="space-y-1.5 border-t border-[var(--nx-border)] pt-2.5">
@@ -308,7 +318,7 @@ export default function MissionsView({
                                       : ''
                                 }
                               >
-                                {step.title}
+                                {m.stepTitle(step.id, step.title)}
                               </span>
                             </li>
                           ))}
@@ -324,7 +334,7 @@ export default function MissionsView({
                                 className="inline-flex items-center gap-1.5 rounded-md bg-[var(--nx-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap cursor-pointer"
                               >
                                 <Check className="h-3.5 w-3.5" />
-                                <span>Approve plan</span>
+                                <span>{t('missionsApproveBtn')}</span>
                               </button>
                               <button
                                 type="button"
@@ -334,12 +344,12 @@ export default function MissionsView({
                                 className="inline-flex items-center gap-1 rounded-md border border-[var(--nx-border-strong)] px-2.5 py-1.5 text-xs font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] whitespace-nowrap cursor-pointer"
                               >
                                 <RotateCcw className="h-3 w-3" />
-                                <span>Revise</span>
+                                <span>{t('missionsReviseBtn')}</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => onRejectMission(mission.id)}
-                                aria-label={`Cancel mission ${mission.code}`}
+                                aria-label={t('missionsCancelAria', { code: mission.code })}
                                 className="ml-auto rounded-md p-1.5 text-[var(--nx-text-subtle)] hover:text-[var(--nx-alert)] cursor-pointer"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -352,7 +362,7 @@ export default function MissionsView({
                                   type="text"
                                   value={revisionNote}
                                   onChange={(e) => setRevisionNote(e.target.value)}
-                                  placeholder="Adjustment for Executor..."
+                                  placeholder={t('missionsRevisePlaceholder')}
                                   className="flex-1 rounded-md border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] px-2.5 py-1.5 text-xs text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
                                 />
                                 <button
@@ -365,7 +375,7 @@ export default function MissionsView({
                                   }}
                                   className="rounded-md bg-[var(--nx-surface-hover)] px-2.5 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-accent)] hover:text-[var(--nx-accent-fg)] cursor-pointer"
                                 >
-                                  Save
+                                  {t('commonSave')}
                                 </button>
                               </div>
                             )}
@@ -379,7 +389,7 @@ export default function MissionsView({
                             className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-[var(--nx-accent)]/60 bg-[var(--nx-accent-soft)] py-1.5 text-xs font-semibold text-[var(--nx-accent)] hover:bg-[var(--nx-accent)] hover:text-[var(--nx-accent-fg)] transition-colors cursor-pointer"
                           >
                             <Play className="h-3.5 w-3.5" />
-                            <span>Advance Active Step</span>
+                            <span>{t('missionsAdvanceBtn')}</span>
                           </button>
                         )}
 
@@ -390,7 +400,7 @@ export default function MissionsView({
                             className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--nx-accent)] py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] transition-colors cursor-pointer"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" />
-                            <span>Accept & File Report to Docs</span>
+                            <span>{t('missionsDeliverBtn')}</span>
                           </button>
                         )}
 
@@ -401,7 +411,7 @@ export default function MissionsView({
                             className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-[var(--nx-border-strong)] py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] transition-colors cursor-pointer"
                           >
                             <FileText className="h-3.5 w-3.5 text-[var(--nx-accent)]" />
-                            <span>Read Filed Deliverable</span>
+                            <span>{t('missionsReadDocBtn')}</span>
                           </button>
                         )}
                       </article>

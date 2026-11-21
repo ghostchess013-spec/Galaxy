@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Check, ShieldAlert, Terminal as TerminalIcon, X } from 'lucide-react';
+import { useI18n } from '../../i18n/translations';
 import type {
   Agent,
   BridgeConnectionStatus,
@@ -43,14 +44,13 @@ export default function TerminalView({
   onExecuteLiveShell,
   onResolveLiveApproval,
 }: TerminalViewProps) {
+  const { t } = useI18n();
   const isLive = bridgeStatus === 'live' && Boolean(onExecuteLiveShell);
   const [entries, setEntries] = useState<TerminalEntry[]>([
     {
       id: 't-welcome',
       kind: 'system',
-      text: isLive
-        ? 'GALAXY Live SSH Shell connected to ubuntu@hermesagent (100.72.221.36) via nexora-bridge. Dangerous commands pause at the server HITL Gate.'
-        : 'GALAXY Shell attached to ubuntu@hermesagent (100.72.221.36 · Demo mode). Type "help" for available commands.',
+      text: '',
       timestamp: '19:58:00',
     },
   ]);
@@ -95,11 +95,12 @@ export default function TerminalView({
       try {
         const res = await onExecuteLiveShell(trimmed);
         if (res.status === 'approval_required' && res.approval_id) {
+          const approvalId = res.approval_id;
           setPendingGate({
-            id: `gate-${res.approval_id}`,
-            liveApprovalId: res.approval_id,
+            id: `gate-${approvalId}`,
+            liveApprovalId: approvalId,
             command: trimmed,
-            reason: `Held by server-side HITL Gate [${res.approval_id}] on nexora-bridge.`,
+            reason: t('terminalGateServerReason', { id: approvalId }),
             requestedAt: ts,
           });
           setEntries((prev) => [
@@ -107,12 +108,12 @@ export default function TerminalView({
             {
               id: `gt-${Date.now() + 1}`,
               kind: 'gate',
-              text: `[HITL GATE ${res.approval_id}] Command requires explicit Operator approval before SSH execution.`,
+              text: t('terminalGateServerLog', { id: approvalId }),
               timestamp: nowStr(),
             },
           ]);
         } else {
-          const outText = res.stdout || res.stderr || '(command completed with no output)';
+          const outText = res.stdout || res.stderr || t('terminalNoOutput');
           setEntries((prev) => [
             ...prev,
             {
@@ -129,7 +130,9 @@ export default function TerminalView({
           {
             id: `err-${Date.now() + 1}`,
             kind: 'error',
-            text: `Bridge error: ${err instanceof Error ? err.message : String(err)}`,
+            text: t('terminalBridgeError', {
+              err: err instanceof Error ? err.message : String(err),
+            }),
             timestamp: nowStr(),
           },
         ]);
@@ -195,8 +198,10 @@ export default function TerminalView({
             kind: decision === 'reject' ? 'error' : res.ok ? 'output' : 'error',
             text:
               decision === 'reject'
-                ? `[GATE BLOCKED] Rejected "${gate.command}" on server.`
-                : res.stdout || res.stderr || `[APPROVED] Executed "${gate.command}".`,
+                ? t('terminalGateRejectedServer', { cmd: gate.command })
+                : res.stdout ||
+                  res.stderr ||
+                  t('terminalGateApprovedServer', { cmd: gate.command }),
             timestamp: nowStr(),
           },
         ]);
@@ -206,7 +211,9 @@ export default function TerminalView({
           {
             id: `err-${Date.now()}`,
             kind: 'error',
-            text: `Approval resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+            text: t('terminalGateFailed', {
+              err: err instanceof Error ? err.message : String(err),
+            }),
             timestamp: nowStr(),
           },
         ]);
@@ -223,7 +230,7 @@ export default function TerminalView({
         {
           id: `blk-${Date.now()}`,
           kind: 'error',
-          text: `[GATE BLOCKED] Operator rejected "${gate.command}".`,
+          text: t('terminalGateRejectedLocal', { cmd: gate.command }),
           timestamp: nowStr(),
         },
       ]);
@@ -266,13 +273,16 @@ export default function TerminalView({
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--nx-border)] pb-5">
         <div>
           <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-            Manage / Terminal · {isLive ? 'Live SSH' : 'Local Simulator'}
+            {isLive ? t('terminalEyebrowLive') : t('terminalEyebrowDemo')}
           </p>
           <h1 className="font-editorial text-4xl leading-tight mt-1 text-[var(--nx-text)]">
-            A real <span className="italic text-[var(--nx-accent)]">shell.</span>
+            {t('terminalTitlePrefix')}{' '}
+            <span className="italic text-[var(--nx-accent)]">{t('terminalTitleAccent')}</span>
           </h1>
           <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">
-            Direct console to <span className="font-mono text-[var(--nx-text)]">ubuntu@hermesagent</span> protected by a Human-in-the-Loop Gate for destructive operations.
+            {t('terminalSubtitlePre')}{' '}
+            <span className="font-mono text-[var(--nx-text)]">ubuntu@hermesagent</span>{' '}
+            {t('terminalSubtitlePost')}
           </p>
         </div>
 
@@ -301,7 +311,7 @@ export default function TerminalView({
             <ShieldAlert className="h-5 w-5 text-[var(--nx-alert)] shrink-0 mt-0.5" />
             <div>
               <p className="text-xs font-semibold text-[var(--nx-text)]">
-                HITL Approval Required — Risky Shell Command Held
+                {t('terminalGateBannerTitle')}
               </p>
               <p className="font-mono text-xs text-[var(--nx-accent)] mt-0.5">
                 {pendingGate.command}
@@ -316,7 +326,7 @@ export default function TerminalView({
               className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] cursor-pointer"
             >
               <X className="h-3.5 w-3.5" />
-              <span>Block</span>
+              <span>{t('terminalBlockBtn')}</span>
             </button>
             <button
               type="button"
@@ -324,7 +334,7 @@ export default function TerminalView({
               className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3.5 py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] cursor-pointer"
             >
               <Check className="h-3.5 w-3.5" />
-              <span>Approve & Execute</span>
+              <span>{t('terminalApproveExecBtn')}</span>
             </button>
           </div>
         </div>
@@ -342,7 +352,7 @@ export default function TerminalView({
             onClick={() => setEntries([])}
             className="hover:text-white cursor-pointer"
           >
-            Clear
+            {t('commonClear')}
           </button>
         </div>
 
@@ -350,30 +360,38 @@ export default function TerminalView({
           ref={outputRef}
           className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed space-y-2.5"
         >
-          {entries.map((entry) => (
-            <div key={entry.id}>
-              {entry.kind === 'input' ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-[var(--nx-accent)]">ubuntu@hermesagent:~$</span>
-                  <span className="text-white">{entry.text}</span>
-                </div>
-              ) : (
-                <pre
-                  className={`whitespace-pre-wrap break-words font-mono ${
-                    entry.kind === 'error'
-                      ? 'text-red-400'
-                      : entry.kind === 'gate'
-                        ? 'text-amber-300'
-                        : entry.kind === 'system'
-                          ? 'text-neutral-400'
-                          : 'text-emerald-300/95'
-                  }`}
-                >
-                  {entry.text}
-                </pre>
-              )}
-            </div>
-          ))}
+          {entries.map((entry) => {
+            const displayText =
+              entry.id === 't-welcome'
+                ? isLive
+                  ? t('terminalWelcomeLive')
+                  : t('terminalWelcomeDemo')
+                : entry.text;
+            return (
+              <div key={entry.id}>
+                {entry.kind === 'input' ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--nx-accent)]">ubuntu@hermesagent:~$</span>
+                    <span className="text-white">{displayText}</span>
+                  </div>
+                ) : (
+                  <pre
+                    className={`whitespace-pre-wrap break-words font-mono ${
+                      entry.kind === 'error'
+                        ? 'text-red-400'
+                        : entry.kind === 'gate'
+                          ? 'text-amber-300'
+                          : entry.kind === 'system'
+                            ? 'text-neutral-400'
+                            : 'text-emerald-300/95'
+                    }`}
+                  >
+                    {displayText}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <form
@@ -382,7 +400,7 @@ export default function TerminalView({
         >
           <span className="text-[var(--nx-accent)] shrink-0">ubuntu@hermesagent:~$</span>
           <label htmlFor="terminal-cmd-input" className="sr-only">
-            Terminal command input
+            {t('terminalInputAria')}
           </label>
           <input
             id="terminal-cmd-input"
@@ -390,7 +408,7 @@ export default function TerminalView({
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command (e.g. hermes fleet, ss -tulnp, help)..."
+            placeholder={t('terminalInputPlaceholder')}
             className="flex-1 bg-transparent text-white placeholder:text-neutral-500 focus:outline-none"
             autoComplete="off"
           />
@@ -398,7 +416,7 @@ export default function TerminalView({
             type="submit"
             className="rounded-md bg-[var(--nx-accent)] px-3 py-1 text-[11px] font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] cursor-pointer"
           >
-            Run
+            {t('commonRun')}
           </button>
         </form>
       </section>

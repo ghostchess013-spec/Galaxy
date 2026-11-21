@@ -190,11 +190,14 @@ export interface IntegrationService {
   enabled: boolean;
 }
 
+export type LanguageId = 'en' | 'id';
+
 export interface OperatorSettings {
   operatorName: string;
   cityLabel: string;
   timezone: string;
   theme: ThemeId;
+  language: LanguageId;
   voiceEngine: 'voicestudio' | 'piper' | 'kokoro' | 'elevenlabs';
   autoSpeakReplies: boolean;
   bridgeMode: 'demo' | 'live';

@@ -797,20 +797,20 @@ Routing routine cron heartbeats and VPS probes to Flash-tier endpoints reduced m
   },
   {
     id: 'doc-6',
-    title: 'GALAXY 3D Agent City Spatial Layout Spec',
+    title: 'GALAXY 2-Floor 3D AI Agent Office Layout Spec',
     category: 'Design',
     authorAgentId: 'design',
     updatedAt: 'Nov 19, 2026',
     wordCount: 154,
-    content: `# GALAXY 3D Agent City Layout Specification
+    content: `# GALAXY 2-Floor 3D AI Agent Office Specification
 
-## Hierarchy
-- **Central Plaza**: Executor HQ occupies the radial core (0, 0), linked to every specialist district by asphalt radial avenues.
-- **Outer Ring**: Active specialists occupy evenly spaced circular landscaped plazas around the ring road.
-- **Live Telemetry Encoding**:
-  - **Working**: Pulsing active lighting bands, plaza sonar ring, and glowing data shuttles traveling along the road to Executor HQ.
-  - **Idle**: Calm architectural ceramic finish with subtle perimeter illumination.
-  - **Alert**: Crimson beacon & high-visibility warning ring requiring immediate inspection.`,
+## Spatial Architecture
+- **Floor 1 — Workspace & Social Zones**: Features 1:1 workstation desks and ergonomic chairs matching every active Hermes agent, a glass-walled Meeting Room, Pantry & Coffee Bar, Reading Nook, and Living Room Lounge with TV and Pool Table.
+- **Floor 2 — Private Dormitory**: Houses 1:1 beds and bedside cabinets synced directly with your active Hermes agent roster so beds scale up or down automatically.
+- **Live Telemetry & Human Behavior**:
+  - **Working**: Agent walks to their Floor 1 workstation desk, sits down, and shows active thought bubbles above their head.
+  - **Idle**: Agent roams naturally — grabbing coffee, watching TV, playing pool, reading, or walking upstairs to nap on Floor 2.
+  - **Alert**: High-visibility crimson thought bubble & beacon alerting the Operator for immediate review.`,
   },
 ];
 
@@ -1120,6 +1120,7 @@ export const DEFAULT_SETTINGS: OperatorSettings = {
   cityLabel: 'JAKARTA',
   timezone: 'Asia/Jakarta',
   theme: 'obsidian-ember',
+  language: 'id',
   voiceEngine: 'voicestudio',
   autoSpeakReplies: true,
   bridgeMode: 'demo',

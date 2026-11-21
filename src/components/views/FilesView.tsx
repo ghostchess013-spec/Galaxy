@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FileCode2, RefreshCw, RotateCcw, Save } from 'lucide-react';
+import { useI18n } from '../../i18n/translations';
 import type { BridgeConnectionStatus, WorkspaceFile } from '../../types/nexora';
 
 interface FilesViewProps {
@@ -19,6 +20,7 @@ export default function FilesView({
   onSaveFile,
   onSyncLiveFiles,
 }: FilesViewProps) {
+  const { t, lang } = useI18n();
   const activeFile = files.find((f) => f.id === selectedFileId) ?? files[0];
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savedNotice, setSavedNotice] = useState('');
@@ -26,6 +28,15 @@ export default function FilesView({
 
   const currentValue = drafts[activeFile.id] ?? activeFile.content;
   const isDirty = currentValue !== activeFile.content;
+
+  const formatUpdatedAt = (val: string) => {
+    if (lang === 'id') {
+      if (val === 'Saved just now') return t('appFileSavedNow');
+      return val.replace(/^Nov (\d+), (\d+)/, '$1 Nov $2');
+    }
+    if (val === 'Baru saja disimpan') return t('appFileSavedNow');
+    return val;
+  };
 
   const handleSave = async () => {
     await onSaveFile(activeFile.id, currentValue);
@@ -36,8 +47,8 @@ export default function FilesView({
     });
     setSavedNotice(
       bridgeStatus === 'live'
-        ? `Saved ${activeFile.path} on hermesagent`
-        : `Saved ${activeFile.path}`,
+        ? t('filesSavedLive', { path: activeFile.path })
+        : t('filesSavedLocal', { path: activeFile.path }),
     );
     window.setTimeout(() => setSavedNotice(''), 2800);
   };
@@ -47,7 +58,7 @@ export default function FilesView({
     setSyncing(true);
     try {
       await onSyncLiveFiles();
-      setSavedNotice('Synced ~/.hermes/ from hermesagent');
+      setSavedNotice(t('filesSyncedNotice'));
       window.setTimeout(() => setSavedNotice(''), 2400);
     } finally {
       setSyncing(false);
@@ -59,14 +70,13 @@ export default function FilesView({
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--nx-border)] pb-5">
         <div>
           <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
-            Manage / Files · {bridgeStatus === 'live' ? 'Live hermesagent' : 'Local Workspace'}
+            {bridgeStatus === 'live' ? t('filesEyebrowLive') : t('filesEyebrowDemo')}
           </p>
           <h1 className="font-editorial text-4xl leading-tight mt-1 text-[var(--nx-text)]">
-            Their <span className="italic text-[var(--nx-accent)]">files.</span>
+            {t('filesTitlePrefix')}{' '}
+            <span className="italic text-[var(--nx-accent)]">{t('filesTitleAccent')}</span>
           </h1>
-          <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">
-            Inspect and edit SOUL.md, USER.md, OPERATING_RULES.md, and Hermes config files directly.
-          </p>
+          <p className="mt-1.5 text-sm text-[var(--nx-text-muted)]">{t('filesSubtitle')}</p>
         </div>
 
         {bridgeStatus === 'live' && onSyncLiveFiles && (
@@ -77,7 +87,7 @@ export default function FilesView({
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3.5 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] disabled:opacity-50 whitespace-nowrap cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            <span>{syncing ? 'Syncing...' : 'Sync from hermesagent'}</span>
+            <span>{syncing ? t('filesSyncing') : t('filesSyncBtn')}</span>
           </button>
         )}
       </div>
@@ -108,11 +118,13 @@ export default function FilesView({
                   </span>
                   {dirty && (
                     <span className="ml-auto text-[10px] font-mono text-[var(--nx-accent)]">
-                      modified
+                      {t('filesModified')}
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-[11px] text-[var(--nx-text-subtle)]">{file.updatedAt}</p>
+                <p className="mt-1 text-[11px] text-[var(--nx-text-subtle)]">
+                  {formatUpdatedAt(file.updatedAt)}
+                </p>
               </button>
             );
           })}
@@ -125,7 +137,7 @@ export default function FilesView({
                 {activeFile.path}
               </p>
               <p className="text-[11px] text-[var(--nx-text-muted)] mt-0.5">
-                {activeFile.language} · Updated {activeFile.updatedAt}
+                {activeFile.language} · {t('commonUpdated')} {formatUpdatedAt(activeFile.updatedAt)}
                 {savedNotice ? ` · ${savedNotice}` : ''}
               </p>
             </div>
@@ -143,7 +155,7 @@ export default function FilesView({
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nx-border-strong)] px-3 py-1.5 text-xs text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  <span>Revert</span>
+                  <span>{t('filesRevert')}</span>
                 </button>
               )}
               <button
@@ -153,13 +165,13 @@ export default function FilesView({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3.5 py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] disabled:opacity-45 whitespace-nowrap cursor-pointer"
               >
                 <Save className="h-3.5 w-3.5" />
-                <span>Save File</span>
+                <span>{t('filesSaveBtn')}</span>
               </button>
             </div>
           </div>
 
           <label htmlFor="workspace-file-editor" className="sr-only">
-            Edit {activeFile.path}
+            {t('filesEditAria', { path: activeFile.path })}
           </label>
           <textarea
             id="workspace-file-editor"
