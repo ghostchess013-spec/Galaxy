@@ -40,6 +40,46 @@ interface InOfficeChatPanelProps {
   onClose: () => void;
 }
 
+const ChatMessageRow = memo(function ChatMessageRow({
+  msg,
+  agentName,
+}: {
+  msg: ChatMessage;
+  agentName: string;
+}) {
+  return (
+    <div
+      className={`flex flex-col ${
+        msg.sender === 'operator' ? 'items-end' : 'items-start'
+      }`}
+    >
+      <div
+        className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-xs leading-relaxed border ${
+          msg.sender === 'operator'
+            ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)] border-transparent'
+            : 'bg-[var(--nx-surface)] text-[var(--nx-text)] border-[var(--nx-border)]'
+        }`}
+      >
+        {msg.attachmentName && (
+          <p className="text-[10px] font-mono opacity-85 mb-1">
+            Attachment: {msg.attachmentName}
+          </p>
+        )}
+        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+        {msg.toolTrace && msg.toolTrace.length > 0 && (
+          <div className="mt-2 pt-1.5 border-t border-[var(--nx-border)] text-[10px] font-mono text-[var(--nx-text-muted)]">
+            {msg.toolTrace.join(' · ')}
+          </div>
+        )}
+      </div>
+      <span className="mt-1 text-[10px] font-mono text-[var(--nx-text-subtle)]">
+        {msg.sender === 'operator' ? 'Operator' : agentName} · {msg.timestamp}
+        {msg.latencyMs ? ` · ${msg.latencyMs}ms` : ''}
+      </span>
+    </div>
+  );
+});
+
 /**
  * Isolated memoized chat panel so keystrokes and incoming messages never trigger
  * re-renders or layout reflows inside the adjacent 3D WebGL office canvas.
@@ -61,16 +101,19 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
   const chatFileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Instant container-only scroll (avoids smooth-scroll animation competing with 60fps WebGL)
+  // Defer scroll adjustment to next animation frame (never forces synchronous layout on Send)
   useEffect(() => {
-    const scroller = scrollContainerRef.current;
-    if (!scroller) return;
-    scroller.scrollTop = scroller.scrollHeight;
+    const id = window.requestAnimationFrame(() => {
+      const scroller = scrollContainerRef.current;
+      if (!scroller) return;
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(id);
   }, [thread.length, isSending, selectedAgent.id]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatDraft.trim()) return;
+    if (!chatDraft.trim() || isSending) return;
     onSendMessage(selectedAgent.id, chatDraft, chatAttachment ?? undefined);
     setChatDraft('');
     setChatAttachment(null);
@@ -79,7 +122,7 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
   return (
     <aside
       aria-label="In-Office Live Chat"
-      className="w-full lg:w-[370px] xl:w-[400px] shrink-0 h-[460px] lg:h-auto rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden [contain:layout_style]"
+      className="w-full lg:w-[370px] xl:w-[400px] shrink-0 h-[460px] lg:h-auto rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden [contain:strict]"
     >
       {/* Quick Agent Switcher Strip */}
       <div className="border-b border-[var(--nx-border)] px-3 py-2.5 bg-[var(--nx-surface)]/55">
@@ -202,36 +245,7 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
           </div>
         ) : (
           thread.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${
-                msg.sender === 'operator' ? 'items-end' : 'items-start'
-              }`}
-            >
-              <div
-                className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-xs leading-relaxed border ${
-                  msg.sender === 'operator'
-                    ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)] border-transparent'
-                    : 'bg-[var(--nx-surface)] text-[var(--nx-text)] border-[var(--nx-border)]'
-                }`}
-              >
-                {msg.attachmentName && (
-                  <p className="text-[10px] font-mono opacity-85 mb-1">
-                    Attachment: {msg.attachmentName}
-                  </p>
-                )}
-                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                {msg.toolTrace && msg.toolTrace.length > 0 && (
-                  <div className="mt-2 pt-1.5 border-t border-[var(--nx-border)] text-[10px] font-mono text-[var(--nx-text-muted)]">
-                    {msg.toolTrace.join(' · ')}
-                  </div>
-                )}
-              </div>
-              <span className="mt-1 text-[10px] font-mono text-[var(--nx-text-subtle)]">
-                {msg.sender === 'operator' ? 'Operator' : selectedAgent.name} · {msg.timestamp}
-                {msg.latencyMs ? ` · ${msg.latencyMs}ms` : ''}
-              </span>
-            </div>
+            <ChatMessageRow key={msg.id} msg={msg} agentName={selectedAgent.name} />
           ))
         )}
 
@@ -295,6 +309,7 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
           />
           <button
             type="submit"
+            onMouseDown={(e) => e.preventDefault()}
             disabled={!chatDraft.trim() || isSending}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] disabled:opacity-50 whitespace-nowrap cursor-pointer shrink-0"
           >
@@ -465,8 +480,8 @@ const AgentCityView = memo(function AgentCityView({
 
       {/* Main Split Workspace: 3D AI Agent Office + Docked Side-by-Side Live Chat */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4">
-        {/* Left: Full 2-Floor 3D Office Viewport with Collapsible Bottom Dock */}
-        <div className="relative flex-1 min-w-0 h-[360px] sm:h-[440px] lg:h-auto lg:min-h-0 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] overflow-hidden [contain:layout_style]">
+        {/* Left: Full 2-Floor 3D Office Viewport with strict GPU layer containment */}
+        <div className="relative shrink-0 h-[340px] sm:h-[420px] lg:shrink lg:flex-1 lg:min-w-0 lg:h-auto lg:min-h-0 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] overflow-hidden [contain:strict] [transform:translateZ(0)]">
           <AgentOffice3D
             agents={agents}
             selectedAgentId={selectedAgent?.id ?? null}

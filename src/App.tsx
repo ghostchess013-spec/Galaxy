@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Building2,
@@ -285,6 +285,8 @@ export default function App() {
   const chatPrevStateRef = useRef<Record<string, { status: AgentStatus; currentTask: string }>>({});
   const chatWorkingLockRef = useRef<Record<string, { task: string; untilMs: number }>>({});
   const latestTelemetryRef = useRef<BridgeTelemetry | null>(null);
+  const latestHealthChecksRef = useRef<HealthCheck[] | null>(null);
+  const latestInterAgentLogsRef = useRef<InterAgentLog[] | null>(null);
   const sectionRef = useRef<NavSection>(section);
   const agentsRef = useRef<Agent[]>(agents);
   const chatsRef = useRef<Record<string, ChatMessage[]>>(chats);
@@ -303,10 +305,14 @@ export default function App() {
   sessionTokenRef.current = sessionToken;
   hasBridgeAuthRef.current = hasBridgeAuth;
 
-  // Flush latest buffered telemetry snapshot when returning to Cockpit or Health
+  // Flush latest buffered telemetry/logs when leaving 3D Agent Office for Cockpit or Health
   useEffect(() => {
-    if ((section === 'cockpit' || section === 'health') && latestTelemetryRef.current) {
-      setLiveTelemetry(latestTelemetryRef.current);
+    if (section !== 'city') {
+      startTransition(() => {
+        if (latestTelemetryRef.current) setLiveTelemetry(latestTelemetryRef.current);
+        if (latestHealthChecksRef.current) setHealthChecks(latestHealthChecksRef.current);
+        if (latestInterAgentLogsRef.current) setInterAgentLogs(latestInterAgentLogsRef.current);
+      });
     }
   }, [section]);
 
@@ -426,51 +432,62 @@ export default function App() {
             if (msg.type === 'telemetry' && msg.data) {
               const snap = msg.data;
               latestTelemetryRef.current = snap;
-              // Skip re-rendering root App for raw telemetry numbers while user is in 3D Agent Office
-              if (sectionRef.current !== 'city') {
-                setLiveTelemetry(snap);
+              const inOffice = sectionRef.current === 'city';
+              // Skip re-rendering root App for telemetry numbers/logs while user is in 3D Agent Office
+              if (!inOffice) {
+                startTransition(() => {
+                  setLiveTelemetry(snap);
+                });
               }
               const nextStatus: BridgeConnectionStatus = snap.connected ? 'live' : 'error';
               setBridgeStatus((prev) => (prev === nextStatus ? prev : nextStatus));
               if (!snap.connected && snap.error) {
                 setBridgeError((prev) => (prev === snap.error ? prev : snap.error ?? ''));
               }
-              setAgents((prevAgents) => {
-                const merged = mergeBridgeTelemetry(
-                  snap,
-                  prevAgents,
-                  INITIAL_HEALTH_CHECKS,
-                  settings.showOnlyVpsAgents,
-                );
-                setHealthChecks((prevChecks) =>
-                  healthChecksAreEquivalent(prevChecks, merged.healthChecks)
-                    ? prevChecks
-                    : merged.healthChecks,
-                );
-                if (merged.interAgentLogs.length > 0) {
-                  setInterAgentLogs((prevLogs) => {
-                    if (
-                      prevLogs.length === merged.interAgentLogs.length &&
-                      prevLogs[0]?.id === merged.interAgentLogs[0]?.id &&
-                      prevLogs[0]?.message === merged.interAgentLogs[0]?.message
-                    ) {
-                      return prevLogs;
+              startTransition(() => {
+                setAgents((prevAgents) => {
+                  const merged = mergeBridgeTelemetry(
+                    snap,
+                    prevAgents,
+                    INITIAL_HEALTH_CHECKS,
+                    settings.showOnlyVpsAgents,
+                  );
+                  latestHealthChecksRef.current = merged.healthChecks;
+                  if (merged.interAgentLogs.length > 0) {
+                    latestInterAgentLogsRef.current = merged.interAgentLogs;
+                  }
+                  if (!inOffice) {
+                    setHealthChecks((prevChecks) =>
+                      healthChecksAreEquivalent(prevChecks, merged.healthChecks)
+                        ? prevChecks
+                        : merged.healthChecks,
+                    );
+                    if (merged.interAgentLogs.length > 0) {
+                      setInterAgentLogs((prevLogs) => {
+                        if (
+                          prevLogs.length === merged.interAgentLogs.length &&
+                          prevLogs[0]?.id === merged.interAgentLogs[0]?.id &&
+                          prevLogs[0]?.message === merged.interAgentLogs[0]?.message
+                        ) {
+                          return prevLogs;
+                        }
+                        return merged.interAgentLogs;
+                      });
                     }
-                    return merged.interAgentLogs;
+                  }
+                  const nowMs = Date.now();
+                  const reconciled = merged.agents.map((ag) => {
+                    const lock = chatWorkingLockRef.current[ag.id];
+                    if (lock && lock.untilMs > nowMs && ag.status !== 'alert') {
+                      return { ...ag, status: 'working' as const, currentTask: lock.task };
+                    }
+                    if (lock && lock.untilMs <= nowMs) {
+                      delete chatWorkingLockRef.current[ag.id];
+                    }
+                    return ag;
                   });
-                }
-                const nowMs = Date.now();
-                const reconciled = merged.agents.map((ag) => {
-                  const lock = chatWorkingLockRef.current[ag.id];
-                  if (lock && lock.untilMs > nowMs && ag.status === 'idle') {
-                    return { ...ag, status: 'working' as const, currentTask: lock.task };
-                  }
-                  if (lock && lock.untilMs <= nowMs) {
-                    delete chatWorkingLockRef.current[ag.id];
-                  }
-                  return ag;
+                  return agentsAreEquivalent(prevAgents, reconciled) ? prevAgents : reconciled;
                 });
-                return agentsAreEquivalent(prevAgents, reconciled) ? prevAgents : reconciled;
               });
             }
           } catch {
@@ -528,9 +545,10 @@ export default function App() {
     }
   }, [settings.theme]);
 
-  // Persist workspace state to localStorage (debounced off animation frames; strips bearer token)
+  // Persist workspace state to localStorage strictly during browser idle time (zero Send stutter)
   useEffect(() => {
-    const saveTimer = window.setTimeout(() => {
+    let idleId: number | null = null;
+    const writeSnapshot = () => {
       try {
         const payload: PersistedState = {
           agents,
@@ -550,8 +568,25 @@ export default function App() {
       } catch {
         // Ignore storage quota errors
       }
-    }, 850);
-    return () => window.clearTimeout(saveTimer);
+    };
+    const saveTimer = window.setTimeout(() => {
+      const ric = (window as unknown as {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      }).requestIdleCallback;
+      if (typeof ric === 'function') {
+        idleId = ric(writeSnapshot, { timeout: 2000 });
+      } else {
+        writeSnapshot();
+      }
+    }, 2200);
+    return () => {
+      window.clearTimeout(saveTimer);
+      if (idleId !== null) {
+        const cic = (window as unknown as { cancelIdleCallback?: (id: number) => void })
+          .cancelIdleCallback;
+        cic?.(idleId);
+      }
+    };
   }, [agents, missions, chats, docs, crons, files, integrations, interAgentLogs, settings]);
 
   // Clock state isolated in <LiveClock /> above so App does not re-render every 1s
@@ -808,11 +843,13 @@ export default function App() {
           task: taskText,
           untilMs: Date.now() + lockMs,
         };
-        setAgents((prev) =>
-          prev.map((a) =>
-            a.id === agent.id ? { ...a, status: 'working', currentTask: taskText } : a,
-          ),
-        );
+        startTransition(() => {
+          setAgents((prev) =>
+            prev.map((a) =>
+              a.id === agent.id ? { ...a, status: 'working', currentTask: taskText } : a,
+            ),
+          );
+        });
       };
 
       const scheduleIdleReturn = (delayMs: number) => {
@@ -829,17 +866,19 @@ export default function App() {
           delete chatPrevStateRef.current[agent.id];
           delete chatWorkingLockRef.current[agent.id];
           if (!prevSnapshot) return;
-          setAgents((prev) =>
-            prev.map((a) =>
-              a.id === agent.id
-                ? {
-                    ...a,
-                    status: prevSnapshot.status,
-                    currentTask: prevSnapshot.currentTask,
-                  }
-                : a,
-            ),
-          );
+          startTransition(() => {
+            setAgents((prev) =>
+              prev.map((a) =>
+                a.id === agent.id
+                  ? {
+                      ...a,
+                      status: prevSnapshot.status,
+                      currentTask: prevSnapshot.currentTask,
+                    }
+                  : a,
+              ),
+            );
+          });
         }, delayMs);
       };
 

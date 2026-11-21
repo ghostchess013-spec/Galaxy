@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, type MutableRefObject, t
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Agent, ThemeId } from '../types/nexora';
 import {
   createCitySkylineTexture,
@@ -66,6 +67,7 @@ interface AgentRuntime {
   deskLedMat: THREE.MeshStandardMaterial;
   currentPos: THREE.Vector3;
   currentRotY: number;
+  currentSpeed: number;
   currentFloor: 1 | 2;
   path: Waypoint[];
   activity: 'working' | 'alert' | IdleActivityType;
@@ -79,6 +81,9 @@ interface AgentRuntime {
   lastRenderedDot: string;
   lastRenderedSelected: boolean | null;
   lastRenderedBubbleVis: boolean | null;
+  lastScreenX: number;
+  lastScreenY: number;
+  lastVisible: boolean | null;
 }
 
 const FLOOR2_Y = 4.55;
@@ -278,7 +283,29 @@ function getActivitySpot(
   }
 }
 
-function buildRoutePath(fromFloor: 1 | 2, toFloor: 1 | 2, dest: Waypoint): Waypoint[] {
+function buildRoutePath(
+  fromFloor: 1 | 2,
+  toFloor: 1 | 2,
+  dest: Waypoint,
+  currentY?: number,
+): Waypoint[] {
+  // If an agent is mid-staircase when redirected, exit the stairs cleanly first
+  const onStairs =
+    typeof currentY === 'number' && currentY > 0.25 && currentY < FLOOR2_Y - 0.25;
+  if (onStairs) {
+    if (toFloor === 1) {
+      return [
+        { x: STAIR_BOTTOM.x, y: 0, z: STAIR_BOTTOM.z },
+        { x: STAIR_BOTTOM.x, y: 0, z: STAIR_BOTTOM.z + 0.8 },
+        dest,
+      ];
+    }
+    return [
+      { x: STAIR_TOP.x, y: FLOOR2_Y, z: STAIR_TOP.z },
+      { x: STAIR_TOP.x, y: FLOOR2_Y, z: -3.4 },
+      dest,
+    ];
+  }
   if (fromFloor === toFloor) {
     return [dest];
   }
@@ -298,6 +325,97 @@ function buildRoutePath(fromFloor: 1 | 2, toFloor: 1 | 2, dest: Waypoint): Waypo
     { x: STAIR_BOTTOM.x, y: 0, z: STAIR_BOTTOM.z + 0.8 },
     dest,
   ];
+}
+
+/**
+ * Merges static meshes inside a THREE.Group by shared material + shadow flags + attribute
+ * layout, cutting hundreds of individual draw calls down to ~15-25 batched draw calls for
+ * smooth 60fps performance on mobile and desktop GPUs.
+ */
+function mergeGroupByMaterial(
+  group: THREE.Group,
+  trackGeo: <T extends THREE.BufferGeometry>(g: T) => T,
+): void {
+  group.updateMatrixWorld(true);
+  const invGroupMatrix = group.matrixWorld.clone().invert();
+  const localMatrix = new THREE.Matrix4();
+
+  interface Bucket {
+    material: THREE.Material;
+    castShadow: boolean;
+    receiveShadow: boolean;
+    geos: THREE.BufferGeometry[];
+  }
+
+  const buckets = new Map<string, Bucket>();
+  const keepList: THREE.Object3D[] = [];
+
+  group.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    if (obj.userData.keepSeparate) {
+      keepList.push(obj);
+      return;
+    }
+    if (Array.isArray(obj.material) || !obj.geometry) {
+      keepList.push(obj);
+      return;
+    }
+
+    const baseGeo = obj.geometry.index ? obj.geometry.toNonIndexed() : obj.geometry.clone();
+    localMatrix.multiplyMatrices(invGroupMatrix, obj.matrixWorld);
+    baseGeo.applyMatrix4(localMatrix);
+    if (!baseGeo.getAttribute('normal')) {
+      baseGeo.computeVertexNormals();
+    }
+
+    const attrKey = Object.keys(baseGeo.attributes).sort().join(',');
+    const key = `${obj.material.uuid}|${obj.castShadow ? 1 : 0}|${obj.receiveShadow ? 1 : 0}|${attrKey}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        material: obj.material,
+        castShadow: obj.castShadow,
+        receiveShadow: obj.receiveShadow,
+        geos: [],
+      };
+      buckets.set(key, bucket);
+    }
+    bucket.geos.push(baseGeo);
+  });
+
+  // Preserve world transforms for any kept animated objects (clock hand, status LED strips)
+  const keptWorldTransforms = keepList.map((obj) => {
+    const m = new THREE.Matrix4().multiplyMatrices(invGroupMatrix, obj.matrixWorld);
+    return { obj, m };
+  });
+
+  while (group.children.length > 0) {
+    group.remove(group.children[0]);
+  }
+
+  for (const bucket of buckets.values()) {
+    const merged = mergeGeometries(bucket.geos, false);
+    for (let i = 0; i < bucket.geos.length; i += 1) {
+      bucket.geos[i].dispose();
+    }
+    if (!merged) continue;
+    trackGeo(merged);
+    const mesh = new THREE.Mesh(merged, bucket.material);
+    mesh.castShadow = bucket.castShadow;
+    mesh.receiveShadow = bucket.receiveShadow;
+    group.add(mesh);
+  }
+
+  for (const { obj, m } of keptWorldTransforms) {
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
+    m.decompose(pos, quat, scl);
+    obj.position.copy(pos);
+    obj.quaternion.copy(quat);
+    obj.scale.copy(scl);
+    group.add(obj);
+  }
 }
 
 function createContactShadowTexture(): THREE.CanvasTexture {
@@ -510,6 +628,7 @@ function buildWorkstationUnit(
   );
   const ledStrip = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(1.36, 0.03, 0.03)), ledMat);
   ledStrip.position.set(0, 0.785, -0.38);
+  ledStrip.userData.keepSeparate = true;
   g.add(ledStrip);
 
   // Dual Monitors (angled slightly inward toward the agent)
@@ -810,10 +929,10 @@ const OfficeViewport = memo(
                   style={{
                     backgroundColor: 'rgba(252, 250, 247, 0.96)',
                     color: '#18181B',
-                    borderColor: 'rgba(24, 24, 27, 0.14)',
+                    borderColor: 'rgba(24, 24, 27, 0.16)',
                     display: !compact || agents.length <= 4 ? 'block' : 'none',
                   }}
-                  className={`rounded-lg border shadow-md text-left ${
+                  className={`rounded-lg border text-left ${
                     compact ? 'px-2 py-0.5 max-w-[144px]' : 'px-2.5 py-1 max-w-[195px]'
                   }`}
                 >
@@ -837,7 +956,7 @@ const OfficeViewport = memo(
                     color: '#FFFFFF',
                     borderColor: 'rgba(255,255,255,0.22)',
                   }}
-                  className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap shadow-sm"
+                  className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
                 >
                   <span
                     ref={(node) => {
@@ -964,7 +1083,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
     renderer.domElement.style.display = 'block';
-    const maxDpr = isMobileViewport ? 1.5 : 2;
+    const maxDpr = isMobileViewport ? 1.25 : 1.75;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, maxDpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1433,6 +1552,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
     staticGroup.add(clockRim);
     const clockMinuteHand = new THREE.Mesh(sGeo(new THREE.BoxGeometry(0.03, 0.26, 0.02)), darkSteelMat);
     clockMinuteHand.position.set(6.9, 3.35, -7.24);
+    clockMinuteHand.userData.keepSeparate = true;
     staticGroup.add(clockMinuteHand);
 
     // =========================================================================
@@ -1688,6 +1808,10 @@ const AgentOffice3D = memo(function AgentOffice3D({
       buildPottedPlant(13.2, FLOOR2_Y, -1.2, 0.88, 0x242326, foliageMat, trunkMat, sGeo, sMat),
     );
 
+    // Batch all static Floor 1 & Floor 2 architectural meshes by material (massive GPU draw-call win)
+    mergeGroupByMaterial(staticGroup, sGeo);
+    mergeGroupByMaterial(floor2StaticGroup, sGeo);
+
     // =========================================================================
     // 9. DYNAMIC 1:1 WORKSTATIONS, 1:1 BEDS, AND AUTONOMOUS AI AGENTS
     // =========================================================================
@@ -1855,6 +1979,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
           deskLedMat: ws.ledMat,
           currentPos: startPos,
           currentRotY: preservedRotY,
+          currentSpeed: prevRt ? prevRt.currentSpeed : 0,
           currentFloor: startFloor,
           path: preservedPath,
           activity: initialActivity,
@@ -1868,8 +1993,15 @@ const AgentOffice3D = memo(function AgentOffice3D({
           lastRenderedDot: '',
           lastRenderedSelected: null,
           lastRenderedBubbleVis: null,
+          lastScreenX: -9999,
+          lastScreenY: -9999,
+          lastVisible: null,
         });
       });
+
+      // Merge static workstation & dormitory bed geometry by material (keeps ledStrip separate)
+      mergeGroupByMaterial(dynamicFloor1Group, dGeo);
+      mergeGroupByMaterial(dynamicFloor2Group, dGeo);
 
       // Re-bake static office + workstation shadows once after fleet structure changes
       if (enableBakedShadows) {
@@ -2051,11 +2183,15 @@ const AgentOffice3D = memo(function AgentOffice3D({
 
     const IDLE_ACTIVITIES: IdleActivityType[] = ['coffee', 'tv', 'billiard', 'meeting', 'reading', 'stroll', 'nap'];
 
+    let smoothedDt = 1 / 60;
+
     const tick = () => {
       if (disposed) return;
       const nowMs = performance.now();
-      const dt = Math.min((nowMs - lastMs) / 1000, 0.05);
+      const rawDt = Math.min(Math.max((nowMs - lastMs) / 1000, 0.001), 0.036);
       lastMs = nowMs;
+      smoothedDt = smoothedDt * 0.65 + rawDt * 0.35;
+      const dt = smoothedDt;
       const elapsed = (nowMs - startMs) / 1000;
 
       // Subtle ticking wall clock
@@ -2099,11 +2235,12 @@ const AgentOffice3D = memo(function AgentOffice3D({
             rt.activity = 'working';
             rt.moodEmoji = '💻';
             rt.thought = nextTaskText;
-            rt.path = buildRoutePath(rt.currentFloor, 1, {
-              x: rt.chairPos.x,
-              y: 0,
-              z: rt.chairPos.z,
-            });
+            rt.path = buildRoutePath(
+              rt.currentFloor,
+              1,
+              { x: rt.chairPos.x, y: 0, z: rt.chairPos.z },
+              rt.currentPos.y,
+            );
             rt.pose = 'sit';
             rt.faceAngle = Math.PI;
             rt.deskLedMat.color.setHex(0xf95c19);
@@ -2117,11 +2254,12 @@ const AgentOffice3D = memo(function AgentOffice3D({
           rt.activity = 'alert';
           rt.moodEmoji = '⚠️';
           rt.thought = agent.currentTask || 'Butuh persetujuan Operator!';
-          rt.path = buildRoutePath(rt.currentFloor, 1, {
-            x: rt.deskPos.x,
-            y: 0,
-            z: rt.deskPos.z + 1.15,
-          });
+          rt.path = buildRoutePath(
+            rt.currentFloor,
+            1,
+            { x: rt.deskPos.x, y: 0, z: rt.deskPos.z + 1.15 },
+            rt.currentPos.y,
+          );
           rt.pose = 'stand';
           rt.faceAngle = 0;
           rt.deskLedMat.color.setHex(0xef4444);
@@ -2137,7 +2275,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
             const meta = IDLE_THOUGHTS[pick];
             rt.moodEmoji = meta.emoji;
             rt.thought = meta.lines[(rt.index + Math.floor(elapsed)) % meta.lines.length];
-            rt.path = buildRoutePath(rt.currentFloor, spot.floor, spot.pos);
+            rt.path = buildRoutePath(rt.currentFloor, spot.floor, spot.pos, rt.currentPos.y);
             rt.pose = spot.pose;
             rt.faceAngle = spot.faceAngle;
             rt.nextSwitchAt = elapsed + 11 + (rt.index * 2.3) % 7;
@@ -2145,34 +2283,44 @@ const AgentOffice3D = memo(function AgentOffice3D({
           }
         }
 
-        // Follow walking waypoints smoothly with shortest-arc turning
+        const { rig } = rt;
+        // Wait until waking agent stands upright before walking away from bed (zero horizontal sliding)
+        const standingUpFromSleep = rt.path.length > 0 && Math.abs(rig.bodyPivot.rotation.x) > 0.35;
+
+        // Follow walking waypoints with smooth acceleration/deceleration and shortest-arc turning
         let isWalking = false;
-        if (rt.path.length > 0) {
+        if (rt.path.length > 0 && !standingUpFromSleep) {
           const wp = rt.path[0];
           const dx = wp.x - rt.currentPos.x;
           const dy = wp.y - rt.currentPos.y;
           const dz = wp.z - rt.currentPos.z;
           const dist = Math.hypot(dx, dy, dz);
-          const speed = 2.45;
-          if (dist < 0.08) {
+          const isFinalWaypoint = rt.path.length === 1;
+          const desiredSpeed = isFinalWaypoint ? Math.min(2.45, Math.max(0.75, dist * 3.0)) : 2.45;
+          rt.currentSpeed = THREE.MathUtils.damp(rt.currentSpeed, desiredSpeed, 7.5, dt);
+
+          if (dist < 0.06) {
             rt.currentPos.set(wp.x, wp.y, wp.z);
             rt.path.shift();
             rt.currentFloor = rt.currentPos.y > FLOOR2_Y * 0.6 ? 2 : 1;
+            if (rt.path.length === 0) {
+              rt.currentSpeed = 0;
+            }
           } else {
             isWalking = true;
-            const step = Math.min(dist, speed * dt);
+            const step = Math.min(dist, rt.currentSpeed * dt);
             rt.currentPos.x += (dx / dist) * step;
             rt.currentPos.y += (dy / dist) * step;
             rt.currentPos.z += (dz / dist) * step;
             rt.currentFloor = rt.currentPos.y > FLOOR2_Y * 0.6 ? 2 : 1;
             const desiredRot = Math.atan2(dx, dz);
-            rt.currentRotY = dampAngle(rt.currentRotY, desiredRot, 10, dt);
+            rt.currentRotY = dampAngle(rt.currentRotY, desiredRot, 9.5, dt);
           }
         } else {
+          rt.currentSpeed = THREE.MathUtils.damp(rt.currentSpeed, 0, 10, dt);
           rt.currentRotY = dampAngle(rt.currentRotY, rt.faceAngle, 8, dt);
         }
 
-        const { rig } = rt;
         // Hide agents on Floor 2 if user toggled Floor 1 only
         const visibleOnCurrentFloorView =
           floorViewRef.current === 'all' ||
@@ -2183,7 +2331,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
         rig.root.position.copy(rt.currentPos);
         rig.root.rotation.y = rt.currentRotY;
         rig.mug.visible = !isWalking && rt.activity === 'coffee';
-        rig.contactShadow.visible = isWalking || rt.pose !== 'sleep';
+        rig.contactShadow.visible = isWalking || standingUpFromSleep || rt.pose !== 'sleep';
 
         // Compute target body & limb pose, then blend smoothly (zero instant joint snapping)
         let targetPivotY = 0;
@@ -2195,8 +2343,14 @@ const AgentOffice3D = memo(function AgentOffice3D({
         let targetRightArm = 0;
         let targetHeadY = 0;
 
-        if (isWalking) {
-          const stride = Math.sin(elapsed * 8.2 + rt.phaseOffset);
+        if (standingUpFromSleep) {
+          // Smoothly transition upright before walking off the bed
+          targetPivotY = 0;
+          targetPivotZ = 0;
+          targetPivotRotX = 0;
+        } else if (isWalking) {
+          const speedScale = Math.min(1, rt.currentSpeed / 2.2);
+          const stride = Math.sin(elapsed * 8.2 + rt.phaseOffset) * speedScale;
           targetPivotY = Math.abs(stride) * 0.038;
           targetLeftLeg = stride * 0.52;
           targetRightLeg = -stride * 0.52;
@@ -2237,7 +2391,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
           targetHeadY = Math.sin(elapsed * 1.1 + rt.phaseOffset) * 0.22;
         }
 
-        const jointLambda = isWalking ? 18 : 11;
+        const jointLambda = isWalking ? 16 : 11;
         rig.bodyPivot.position.y = THREE.MathUtils.damp(rig.bodyPivot.position.y, targetPivotY, 12, dt);
         rig.bodyPivot.position.z = THREE.MathUtils.damp(rig.bodyPivot.position.z, targetPivotZ, 12, dt);
         rig.bodyPivot.rotation.x = THREE.MathUtils.damp(rig.bodyPivot.rotation.x, targetPivotRotX, 11, dt);
@@ -2272,7 +2426,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
           const bubbleEl = labelBubbleBoxRefs.current[rt.agentId];
           const pillEl = labelPillRefs.current[rt.agentId];
           if (bubbleEl) {
-            bubbleEl.style.borderColor = isSelected ? '#F95C19' : 'rgba(24, 24, 27, 0.14)';
+            bubbleEl.style.borderColor = isSelected ? '#F95C19' : 'rgba(24, 24, 27, 0.16)';
           }
           if (pillEl) {
             const defaultBg = pillEl.dataset.defaultBg || '#F95C19';
@@ -2291,12 +2445,15 @@ const AgentOffice3D = memo(function AgentOffice3D({
           }
         }
 
-        // Project floating Name + Task + Thought Bubble above the agent's head
+        // Project floating Name + Task + Thought Bubble above the agent's head (skip stationary writes)
         const el = labelRefs.current[rt.agentId];
         if (el) {
           if (!visibleOnCurrentFloorView) {
-            el.style.opacity = '0';
-            el.style.pointerEvents = 'none';
+            if (rt.lastVisible !== false) {
+              el.style.opacity = '0';
+              el.style.pointerEvents = 'none';
+              rt.lastVisible = false;
+            }
           } else {
             const headHeight = rt.pose === 'sleep' ? 1.15 : rt.pose === 'sit' ? 1.68 : 1.92;
             _projVec.set(rt.currentPos.x, rt.currentPos.y + headHeight, rt.currentPos.z);
@@ -2306,12 +2463,20 @@ const AgentOffice3D = memo(function AgentOffice3D({
               const rawY = (-_projVec.y * 0.5 + 0.5) * h;
               const sx = Math.max(padX, Math.min(w - padX, rawX));
               const sy = Math.max(padYTop, Math.min(h - padYBottom, rawY));
-              el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
-              el.style.opacity = '1';
-              el.style.pointerEvents = 'auto';
-            } else {
+              if (Math.abs(sx - rt.lastScreenX) >= 0.4 || Math.abs(sy - rt.lastScreenY) >= 0.4) {
+                el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+                rt.lastScreenX = sx;
+                rt.lastScreenY = sy;
+              }
+              if (rt.lastVisible !== true) {
+                el.style.opacity = '1';
+                el.style.pointerEvents = 'auto';
+                rt.lastVisible = true;
+              }
+            } else if (rt.lastVisible !== false) {
               el.style.opacity = '0';
               el.style.pointerEvents = 'none';
+              rt.lastVisible = false;
             }
           }
         }
