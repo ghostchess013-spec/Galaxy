@@ -202,6 +202,7 @@ export default function App() {
   const [sendingChatAgentId, setSendingChatAgentId] = useState<string | null>(null);
   const chatRevertTimersRef = useRef<Record<string, number>>({});
   const chatPrevStateRef = useRef<Record<string, { status: AgentStatus; currentTask: string }>>({});
+  const chatWorkingLockRef = useRef<Record<string, { task: string; untilMs: number }>>({});
 
   const hasBridgeAuth = Boolean(sessionToken || bridgeCookieAuth);
 
@@ -336,7 +337,17 @@ export default function App() {
                 if (merged.interAgentLogs.length > 0) {
                   setInterAgentLogs(merged.interAgentLogs);
                 }
-                return merged.agents;
+                const nowMs = Date.now();
+                return merged.agents.map((ag) => {
+                  const lock = chatWorkingLockRef.current[ag.id];
+                  if (lock && lock.untilMs > nowMs && ag.status === 'idle') {
+                    return { ...ag, status: 'working', currentTask: lock.task };
+                  }
+                  if (lock && lock.untilMs <= nowMs) {
+                    delete chatWorkingLockRef.current[ag.id];
+                  }
+                  return ag;
+                });
               });
             }
           } catch {
@@ -394,27 +405,30 @@ export default function App() {
     }
   }, [settings.theme]);
 
-  // Persist workspace state to localStorage (explicitly stripping session bearer token)
+  // Persist workspace state to localStorage (debounced off animation frames; strips bearer token)
   useEffect(() => {
-    try {
-      const payload: PersistedState = {
-        agents,
-        missions,
-        chats,
-        docs,
-        crons,
-        files,
-        integrations,
-        interAgentLogs,
-        settings: {
-          ...settings,
-          bridgeToken: '',
-        },
-      };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch {
-      // Ignore storage quota errors
-    }
+    const saveTimer = window.setTimeout(() => {
+      try {
+        const payload: PersistedState = {
+          agents,
+          missions,
+          chats,
+          docs,
+          crons,
+          files,
+          integrations,
+          interAgentLogs,
+          settings: {
+            ...settings,
+            bridgeToken: '',
+          },
+        };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch {
+        // Ignore storage quota errors
+      }
+    }, 850);
+    return () => window.clearTimeout(saveTimer);
   }, [agents, missions, chats, docs, crons, files, integrations, interAgentLogs, settings]);
 
   // Live city clock in top bar
@@ -674,7 +688,11 @@ export default function App() {
       delete chatRevertTimersRef.current[agent.id];
     }
 
-    const markAgentWorking = (taskText: string) => {
+    const markAgentWorking = (taskText: string, lockMs = 60000) => {
+      chatWorkingLockRef.current[agent.id] = {
+        task: taskText,
+        untilMs: Date.now() + lockMs,
+      };
       setAgents((prev) =>
         prev.map((a) =>
           a.id === agent.id ? { ...a, status: 'working', currentTask: taskText } : a,
@@ -684,9 +702,17 @@ export default function App() {
 
     const scheduleIdleReturn = (delayMs: number) => {
       const prevSnapshot = chatPrevStateRef.current[agent.id];
+      const existingLock = chatWorkingLockRef.current[agent.id];
+      if (existingLock) {
+        chatWorkingLockRef.current[agent.id] = {
+          ...existingLock,
+          untilMs: Date.now() + delayMs,
+        };
+      }
       chatRevertTimersRef.current[agent.id] = window.setTimeout(() => {
         delete chatRevertTimersRef.current[agent.id];
         delete chatPrevStateRef.current[agent.id];
+        delete chatWorkingLockRef.current[agent.id];
         if (!prevSnapshot) return;
         setAgents((prev) =>
           prev.map((a) =>
@@ -702,7 +728,7 @@ export default function App() {
       }, delayMs);
     };
 
-    markAgentWorking(`Memproses chat: "${promptPreview}"`);
+    markAgentWorking(`Memproses chat: "${promptPreview}"`, 65000);
 
     if (bridgeStatus === 'live' && hasBridgeAuth) {
       const priorHistory = (chats[agent.id] ?? [])

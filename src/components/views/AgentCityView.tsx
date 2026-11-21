@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import {
   BedDouble,
   Camera,
@@ -26,6 +26,286 @@ import AgentOffice3D, {
   type OfficeCameraPreset,
   type OfficeFloorView,
 } from '../AgentOffice3D';
+
+interface InOfficeChatPanelProps {
+  agents: Agent[];
+  selectedAgent: Agent;
+  selectedMood?: AgentLiveMood;
+  thread: ChatMessage[];
+  isSending: boolean;
+  onSelectAgent: (id: string) => void;
+  onSendMessage: (agentId: string, content: string, attachmentName?: string) => void;
+  onClearThread: (agentId: string) => void;
+  onOpenFullChat: (agentId: string) => void;
+  onClose: () => void;
+}
+
+/**
+ * Isolated memoized chat panel so keystrokes and incoming messages never trigger
+ * re-renders or layout reflows inside the adjacent 3D WebGL office canvas.
+ */
+const InOfficeChatPanel = memo(function InOfficeChatPanel({
+  agents,
+  selectedAgent,
+  selectedMood,
+  thread,
+  isSending,
+  onSelectAgent,
+  onSendMessage,
+  onClearThread,
+  onOpenFullChat,
+  onClose,
+}: InOfficeChatPanelProps) {
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatAttachment, setChatAttachment] = useState<string | null>(null);
+  const chatFileInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Instant container-only scroll (avoids smooth-scroll animation competing with 60fps WebGL)
+  useEffect(() => {
+    const scroller = scrollContainerRef.current;
+    if (!scroller) return;
+    scroller.scrollTop = scroller.scrollHeight;
+  }, [thread.length, isSending, selectedAgent.id]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatDraft.trim()) return;
+    onSendMessage(selectedAgent.id, chatDraft, chatAttachment ?? undefined);
+    setChatDraft('');
+    setChatAttachment(null);
+  };
+
+  return (
+    <aside
+      aria-label="In-Office Live Chat"
+      className="w-full lg:w-[370px] xl:w-[400px] shrink-0 h-[460px] lg:h-auto rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden [contain:layout_style]"
+    >
+      {/* Quick Agent Switcher Strip */}
+      <div className="border-b border-[var(--nx-border)] px-3 py-2.5 bg-[var(--nx-surface)]/55">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className="text-[10px] tracking-[0.14em] uppercase font-semibold text-[var(--nx-text-muted)]">
+            Live Office Chat · {agents.length} Agents
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onOpenFullChat(selectedAgent.id)}
+              title="Open full-screen Chat view"
+              aria-label="Open full-screen Chat view"
+              className="rounded-md p-1 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              title="Hide in-office chat"
+              aria-label="Hide in-office chat"
+              className="rounded-md p-1 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          {agents.map((agent) => {
+            const isActive = agent.id === selectedAgent.id;
+            const statusColor =
+              agent.status === 'working'
+                ? '#F95C19'
+                : agent.status === 'alert'
+                  ? '#EF4444'
+                  : '#22C55E';
+            return (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => onSelectAgent(agent.id)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors shrink-0 cursor-pointer ${
+                  isActive
+                    ? 'border-[var(--nx-accent)] bg-[var(--nx-accent-soft)] text-[var(--nx-accent)]'
+                    : 'border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:border-[var(--nx-border-strong)]'
+                }`}
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: statusColor }}
+                  aria-hidden="true"
+                />
+                <span>{agent.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Active Agent Chat Header */}
+      <div className="px-4 py-3 border-b border-[var(--nx-border)] flex items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img
+            src={selectedAgent.avatarUrl}
+            alt={selectedAgent.name}
+            referrerPolicy="no-referrer"
+            className="h-9 w-9 rounded-full object-cover object-top border border-[var(--nx-border-strong)] shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-xs font-semibold text-[var(--nx-text)] truncate">
+                {selectedAgent.name}
+              </h2>
+              <span className="font-mono text-[10px] rounded bg-[var(--nx-surface)] border border-[var(--nx-border)] px-1.5 py-0.5 text-[var(--nx-text-muted)] shrink-0">
+                {selectedAgent.status === 'working'
+                  ? 'Working · L1'
+                  : `Santai · L${selectedMood?.floor ?? 1}`}
+              </span>
+            </div>
+            <p className="text-[11px] text-[var(--nx-text-subtle)] truncate">
+              {selectedAgent.model} · {selectedAgent.profileKey}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onClearThread(selectedAgent.id)}
+          title="Forget thread"
+          aria-label={`Clear chat thread with ${selectedAgent.name}`}
+          className="rounded-lg border border-[var(--nx-border)] p-1.5 text-[var(--nx-text-muted)] hover:text-[var(--nx-alert)] hover:border-[var(--nx-alert)]/40 cursor-pointer shrink-0"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Messages Stream */}
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto px-4 py-3.5 space-y-3 [contain:layout_style]"
+      >
+        {thread.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center px-3 py-8">
+            <img
+              src={selectedAgent.avatarUrl}
+              alt={selectedAgent.name}
+              referrerPolicy="no-referrer"
+              className="h-12 w-12 rounded-full object-cover object-top border border-[var(--nx-border-strong)] mb-3"
+            />
+            <p className="font-editorial text-xl text-[var(--nx-text)]">
+              Chat langsung dengan{' '}
+              <span className="italic text-[var(--nx-accent)]">{selectedAgent.name}.</span>
+            </p>
+            <p className="mt-1.5 text-xs text-[var(--nx-text-muted)] leading-relaxed">
+              Kirim pesan di sini — jika sedang santai atau tidur di Lantai 2,{' '}
+              {selectedAgent.name} akan langsung menuju meja kerjanya untuk mengerjakan tugas Anda.
+            </p>
+          </div>
+        ) : (
+          thread.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex flex-col ${
+                msg.sender === 'operator' ? 'items-end' : 'items-start'
+              }`}
+            >
+              <div
+                className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-xs leading-relaxed border ${
+                  msg.sender === 'operator'
+                    ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)] border-transparent'
+                    : 'bg-[var(--nx-surface)] text-[var(--nx-text)] border-[var(--nx-border)]'
+                }`}
+              >
+                {msg.attachmentName && (
+                  <p className="text-[10px] font-mono opacity-85 mb-1">
+                    Attachment: {msg.attachmentName}
+                  </p>
+                )}
+                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                {msg.toolTrace && msg.toolTrace.length > 0 && (
+                  <div className="mt-2 pt-1.5 border-t border-[var(--nx-border)] text-[10px] font-mono text-[var(--nx-text-muted)]">
+                    {msg.toolTrace.join(' · ')}
+                  </div>
+                )}
+              </div>
+              <span className="mt-1 text-[10px] font-mono text-[var(--nx-text-subtle)]">
+                {msg.sender === 'operator' ? 'Operator' : selectedAgent.name} · {msg.timestamp}
+                {msg.latencyMs ? ` · ${msg.latencyMs}ms` : ''}
+              </span>
+            </div>
+          ))
+        )}
+
+        {isSending && (
+          <div className="flex flex-col items-start">
+            <div className="rounded-xl px-3.5 py-2.5 text-[11px] font-mono border border-[var(--nx-accent)]/40 bg-[var(--nx-accent-soft)] text-[var(--nx-text)]">
+              💻 {selectedAgent.name} sedang bekerja di meja & menyiapkan balasan...
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Live Chat Composer */}
+      <form
+        onSubmit={handleSubmit}
+        className="border-t border-[var(--nx-border)] p-3 bg-[var(--nx-bg-elevated)]"
+      >
+        {chatAttachment && (
+          <div className="mb-2 flex items-center justify-between rounded-md border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-2.5 py-1 text-[11px] text-[var(--nx-text-muted)]">
+            <span className="font-mono truncate">Attached: {chatAttachment}</span>
+            <button
+              type="button"
+              onClick={() => setChatAttachment(null)}
+              aria-label="Remove attachment"
+              className="p-0.5 hover:text-[var(--nx-text)] cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1.5">
+          <input
+            ref={chatFileInputRef}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) setChatAttachment(f.name);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => chatFileInputRef.current?.click()}
+            aria-label="Attach file to office chat"
+            className="rounded-lg border border-[var(--nx-border-strong)] p-2 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer shrink-0"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </button>
+
+          <label htmlFor="office-live-chat-input" className="sr-only">
+            Chat langsung dengan {selectedAgent.name}
+          </label>
+          <input
+            id="office-live-chat-input"
+            type="text"
+            value={chatDraft}
+            onChange={(e) => setChatDraft(e.target.value)}
+            placeholder={`Chat dengan ${selectedAgent.name}...`}
+            className="flex-1 min-w-0 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!chatDraft.trim() || isSending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] disabled:opacity-50 whitespace-nowrap cursor-pointer shrink-0"
+          >
+            <Send className="h-3.5 w-3.5" />
+            <span>Send</span>
+          </button>
+        </div>
+      </form>
+    </aside>
+  );
+});
 
 interface AgentCityViewProps {
   agents: Agent[];
@@ -66,13 +346,9 @@ export default function AgentCityView({
     () => typeof window !== 'undefined' && window.innerWidth < 768,
   );
   const [chatDrawerOpen, setChatDrawerOpen] = useState(true);
-  const [chatDraft, setChatDraft] = useState('');
-  const [chatAttachment, setChatAttachment] = useState<string | null>(null);
   const [floorView, setFloorView] = useState<OfficeFloorView>('all');
   const [moods, setMoods] = useState<Record<string, AgentLiveMood>>({});
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
-  const chatFileInputRef = useRef<HTMLInputElement | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [cameraPreset, setCameraPreset] = useState<{
     mode: OfficeCameraPreset;
     nonce: number;
@@ -90,12 +366,6 @@ export default function AgentCityView({
   const activeThread = selectedAgent ? chats[selectedAgent.id] ?? [] : [];
   const isSendingToSelected = Boolean(selectedAgent && sendingAgentId === selectedAgent.id);
 
-  // Auto-scroll in-office chat to latest message
-  useEffect(() => {
-    if (!chatDrawerOpen) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [activeThread.length, isSendingToSelected, selectedAgent?.id, chatDrawerOpen]);
-
   const handleUploadSelectedPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -108,14 +378,6 @@ export default function AgentCityView({
     } catch {
       setAvatarError('Could not process photo. Choose a JPG, PNG, or WebP image.');
     }
-  };
-
-  const handleInOfficeChatSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedAgent || !chatDraft.trim()) return;
-    onSendMessage(selectedAgent.id, chatDraft, chatAttachment ?? undefined);
-    setChatDraft('');
-    setChatAttachment(null);
   };
 
   return (
@@ -201,7 +463,7 @@ export default function AgentCityView({
       {/* Main Split Workspace: 3D AI Agent Office + Docked Side-by-Side Live Chat */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4">
         {/* Left: Full 2-Floor 3D Office Viewport with Collapsible Bottom Dock */}
-        <div className="relative flex-1 min-w-0 h-[360px] sm:h-[440px] lg:h-auto lg:min-h-0 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] overflow-hidden">
+        <div className="relative flex-1 min-w-0 h-[360px] sm:h-[440px] lg:h-auto lg:min-h-0 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] overflow-hidden [contain:layout_style]">
           <AgentOffice3D
             agents={agents}
             selectedAgentId={selectedAgent?.id ?? null}
@@ -227,38 +489,38 @@ export default function AgentCityView({
               <div className="pointer-events-auto w-full max-w-4xl rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)]/95 px-3.5 py-2.5 shadow-2xl space-y-2">
                 {/* Row 1: Floor View Switcher + Room Camera Presets */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--nx-border)]">
-                <div
-                  className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-1"
-                  role="group"
-                  aria-label="Floor view mode"
-                >
-                  {(
-                    [
-                      { id: 'all', label: '2 Lantai', shortLabel: '2 Lantai', icon: Layers },
-                      { id: 'floor1', label: 'Lantai 1 · Kantor', shortLabel: 'L1 Kantor', icon: Users },
-                      { id: 'floor2', label: 'Lantai 2 · Kamar Tidur', shortLabel: 'L2 Kamar', icon: BedDouble },
-                    ] as const
-                  ).map((item) => {
-                    const Icon = item.icon;
-                    const active = floorView === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setFloorView(item.id)}
-                        className={`inline-flex items-center gap-1.5 rounded-md px-2 sm:px-2.5 py-1 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                          active
-                            ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]'
-                            : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
-                        }`}
-                      >
-                        <Icon className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">{item.label}</span>
-                        <span className="sm:hidden">{item.shortLabel}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                  <div
+                    className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-1"
+                    role="group"
+                    aria-label="Floor view mode"
+                  >
+                    {(
+                      [
+                        { id: 'all', label: '2 Lantai', shortLabel: '2 Lantai', icon: Layers },
+                        { id: 'floor1', label: 'Lantai 1 · Kantor', shortLabel: 'L1 Kantor', icon: Users },
+                        { id: 'floor2', label: 'Lantai 2 · Kamar Tidur', shortLabel: 'L2 Kamar', icon: BedDouble },
+                      ] as const
+                    ).map((item) => {
+                      const Icon = item.icon;
+                      const active = floorView === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setFloorView(item.id)}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2 sm:px-2.5 py-1 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]'
+                              : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">{item.label}</span>
+                          <span className="sm:hidden">{item.shortLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
@@ -415,234 +677,20 @@ export default function AgentCityView({
           </div>
         </div>
 
-        {/* Right: Docked In-Office Live Chat Panel (watch agents walk & work while chatting) */}
+        {/* Right: Isolated Memoized Live Chat Panel */}
         {chatDrawerOpen && selectedAgent && (
-          <aside
-            aria-label="In-Office Live Chat"
-            className="w-full lg:w-[370px] xl:w-[400px] shrink-0 h-[460px] lg:h-auto rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden"
-          >
-            {/* Quick Agent Switcher Strip */}
-            <div className="border-b border-[var(--nx-border)] px-3 py-2.5 bg-[var(--nx-surface)]/55">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <p className="text-[10px] tracking-[0.14em] uppercase font-semibold text-[var(--nx-text-muted)]">
-                  Live Office Chat · {agents.length} Agents
-                </p>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => onOpenChat(selectedAgent.id)}
-                    title="Open full-screen Chat view"
-                    aria-label="Open full-screen Chat view"
-                    className="rounded-md p-1 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
-                  >
-                    <Maximize2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setChatDrawerOpen(false)}
-                    title="Hide in-office chat"
-                    aria-label="Hide in-office chat"
-                    className="rounded-md p-1 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                {agents.map((agent) => {
-                  const isActive = agent.id === selectedAgent.id;
-                  const statusColor =
-                    agent.status === 'working'
-                      ? '#F95C19'
-                      : agent.status === 'alert'
-                        ? '#EF4444'
-                        : '#22C55E';
-                  return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      onClick={() => onSelectAgent(agent.id)}
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors shrink-0 cursor-pointer ${
-                        isActive
-                          ? 'border-[var(--nx-accent)] bg-[var(--nx-accent-soft)] text-[var(--nx-accent)]'
-                          : 'border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:border-[var(--nx-border-strong)]'
-                      }`}
-                    >
-                      <span
-                        className="h-1.5 w-1.5 rounded-full shrink-0"
-                        style={{ backgroundColor: statusColor }}
-                        aria-hidden="true"
-                      />
-                      <span>{agent.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Active Agent Chat Header */}
-            <div className="px-4 py-3 border-b border-[var(--nx-border)] flex items-center justify-between gap-2.5">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <img
-                  src={selectedAgent.avatarUrl}
-                  alt={selectedAgent.name}
-                  referrerPolicy="no-referrer"
-                  className="h-9 w-9 rounded-full object-cover object-top border border-[var(--nx-border-strong)] shrink-0"
-                />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <h2 className="text-xs font-semibold text-[var(--nx-text)] truncate">
-                      {selectedAgent.name}
-                    </h2>
-                    <span className="font-mono text-[10px] rounded bg-[var(--nx-surface)] border border-[var(--nx-border)] px-1.5 py-0.5 text-[var(--nx-text-muted)] shrink-0">
-                      {selectedAgent.status === 'working'
-                        ? 'Working · L1'
-                        : `Santai · L${selectedMood?.floor ?? 1}`}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[var(--nx-text-subtle)] truncate">
-                    {selectedAgent.model} · {selectedAgent.profileKey}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => onClearThread(selectedAgent.id)}
-                title="Forget thread"
-                aria-label={`Clear chat thread with ${selectedAgent.name}`}
-                className="rounded-lg border border-[var(--nx-border)] p-1.5 text-[var(--nx-text-muted)] hover:text-[var(--nx-alert)] hover:border-[var(--nx-alert)]/40 cursor-pointer shrink-0"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* Messages Stream */}
-            <div className="flex-1 overflow-y-auto px-4 py-3.5 space-y-3">
-              {activeThread.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center px-3 py-8">
-                  <img
-                    src={selectedAgent.avatarUrl}
-                    alt={selectedAgent.name}
-                    referrerPolicy="no-referrer"
-                    className="h-12 w-12 rounded-full object-cover object-top border border-[var(--nx-border-strong)] mb-3"
-                  />
-                  <p className="font-editorial text-xl text-[var(--nx-text)]">
-                    Chat langsung dengan{' '}
-                    <span className="italic text-[var(--nx-accent)]">{selectedAgent.name}.</span>
-                  </p>
-                  <p className="mt-1.5 text-xs text-[var(--nx-text-muted)] leading-relaxed">
-                    Kirim pesan di sini — jika sedang santai atau tidur di Lantai 2,{' '}
-                    {selectedAgent.name} akan langsung menuju meja kerjanya untuk mengerjakan tugas Anda.
-                  </p>
-                </div>
-              ) : (
-                activeThread.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${
-                      msg.sender === 'operator' ? 'items-end' : 'items-start'
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-xs leading-relaxed border ${
-                        msg.sender === 'operator'
-                          ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)] border-transparent'
-                          : 'bg-[var(--nx-surface)] text-[var(--nx-text)] border-[var(--nx-border)]'
-                      }`}
-                    >
-                      {msg.attachmentName && (
-                        <p className="text-[10px] font-mono opacity-85 mb-1">
-                          Attachment: {msg.attachmentName}
-                        </p>
-                      )}
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                      {msg.toolTrace && msg.toolTrace.length > 0 && (
-                        <div className="mt-2 pt-1.5 border-t border-[var(--nx-border)] text-[10px] font-mono text-[var(--nx-text-muted)]">
-                          {msg.toolTrace.join(' · ')}
-                        </div>
-                      )}
-                    </div>
-                    <span className="mt-1 text-[10px] font-mono text-[var(--nx-text-subtle)]">
-                      {msg.sender === 'operator' ? 'Operator' : selectedAgent.name} · {msg.timestamp}
-                      {msg.latencyMs ? ` · ${msg.latencyMs}ms` : ''}
-                    </span>
-                  </div>
-                ))
-              )}
-
-              {isSendingToSelected && (
-                <div className="flex flex-col items-start">
-                  <div className="rounded-xl px-3.5 py-2.5 text-[11px] font-mono border border-[var(--nx-accent)]/40 bg-[var(--nx-accent-soft)] text-[var(--nx-text)]">
-                    💻 {selectedAgent.name} sedang bekerja di meja & menyiapkan balasan...
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Live Chat Composer */}
-            <form
-              onSubmit={handleInOfficeChatSubmit}
-              className="border-t border-[var(--nx-border)] p-3 bg-[var(--nx-bg-elevated)]"
-            >
-              {chatAttachment && (
-                <div className="mb-2 flex items-center justify-between rounded-md border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-2.5 py-1 text-[11px] text-[var(--nx-text-muted)]">
-                  <span className="font-mono truncate">Attached: {chatAttachment}</span>
-                  <button
-                    type="button"
-                    onClick={() => setChatAttachment(null)}
-                    aria-label="Remove attachment"
-                    className="p-0.5 hover:text-[var(--nx-text)] cursor-pointer"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              )}
-
-              <div className="flex items-center gap-1.5">
-                <input
-                  ref={chatFileInputRef}
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) setChatAttachment(f.name);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => chatFileInputRef.current?.click()}
-                  aria-label="Attach file to office chat"
-                  className="rounded-lg border border-[var(--nx-border-strong)] p-2 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer shrink-0"
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                </button>
-
-                <label htmlFor="office-live-chat-input" className="sr-only">
-                  Chat langsung dengan {selectedAgent.name}
-                </label>
-                <input
-                  id="office-live-chat-input"
-                  type="text"
-                  value={chatDraft}
-                  onChange={(e) => setChatDraft(e.target.value)}
-                  placeholder={`Chat dengan ${selectedAgent.name}...`}
-                  className="flex-1 min-w-0 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 text-xs text-[var(--nx-text)] placeholder:text-[var(--nx-text-subtle)] focus:border-[var(--nx-accent)] focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={!chatDraft.trim() || isSendingToSelected}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] disabled:opacity-50 whitespace-nowrap cursor-pointer shrink-0"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  <span>Send</span>
-                </button>
-              </div>
-            </form>
-          </aside>
+          <InOfficeChatPanel
+            agents={agents}
+            selectedAgent={selectedAgent}
+            selectedMood={selectedMood}
+            thread={activeThread}
+            isSending={isSendingToSelected}
+            onSelectAgent={onSelectAgent}
+            onSendMessage={onSendMessage}
+            onClearThread={onClearThread}
+            onOpenFullChat={onOpenChat}
+            onClose={() => setChatDrawerOpen(false)}
+          />
         )}
       </div>
 

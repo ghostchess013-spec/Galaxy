@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -698,7 +698,7 @@ function buildPottedPlant(
   return g;
 }
 
-export default function AgentOffice3D({
+const AgentOffice3D = memo(function AgentOffice3D({
   agents,
   selectedAgentId,
   onSelectAgent,
@@ -1762,9 +1762,17 @@ export default function AgentOffice3D({
     const onContextLost = (ev: Event) => ev.preventDefault();
     renderer.domElement.addEventListener('webglcontextlost', onContextLost);
 
-    const resizeObserver = new ResizeObserver(() => {
-      const w = Math.max(container.clientWidth, 320);
-      const h = Math.max(container.clientHeight, 260);
+    let viewportW = width;
+    let viewportH = height;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      const cw = entry ? entry.contentRect.width : container.clientWidth;
+      const ch = entry ? entry.contentRect.height : container.clientHeight;
+      const w = Math.max(cw, 320);
+      const h = Math.max(ch, 260);
+      viewportW = w;
+      viewportH = h;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -1833,8 +1841,8 @@ export default function AgentOffice3D({
         agentById.set(curAgents[i].id, curAgents[i]);
       }
 
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      const w = viewportW;
+      const h = viewportH;
       const padX = compact ? 58 : 74;
       const padYTop = 44;
       const padYBottom = compact ? 18 : 112;
@@ -2091,14 +2099,14 @@ export default function AgentOffice3D({
 
   return (
     <div
-      className="relative w-full h-full overflow-hidden select-none"
+      className="relative w-full h-full overflow-hidden select-none [contain:layout_style]"
       data-testid="agent-office-3d"
       data-agent-count={agents.length}
     >
       <div ref={mountRef} className="w-full h-full" />
 
       {/* Projected Floating Name + Role + Live Thought/Mood Bubbles above every Agent */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden [contain:layout_style]">
         {agents.map((agent, idx) => {
           const isSelected = selectedAgentId === agent.id;
           const pal = AGENT_OUTFIT_PALETTE[idx % AGENT_OUTFIT_PALETTE.length];
@@ -2174,4 +2182,6 @@ export default function AgentOffice3D({
       </div>
     </div>
   );
-}
+});
+
+export default AgentOffice3D;
