@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   BedDouble,
   Camera,
@@ -324,7 +324,7 @@ interface AgentCityViewProps {
   onOpenAsk: () => void;
 }
 
-export default function AgentCityView({
+const AgentCityView = memo(function AgentCityView({
   agents,
   selectedAgentId,
   theme,
@@ -347,12 +347,16 @@ export default function AgentCityView({
   );
   const [chatDrawerOpen, setChatDrawerOpen] = useState(true);
   const [floorView, setFloorView] = useState<OfficeFloorView>('all');
-  const [moods, setMoods] = useState<Record<string, AgentLiveMood>>({});
+  const [selectedMood, setSelectedMood] = useState<AgentLiveMood | null>(null);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
   const [cameraPreset, setCameraPreset] = useState<{
     mode: OfficeCameraPreset;
     nonce: number;
   }>({ mode: 'overview', nonce: 0 });
+
+  const handleCloseChat = useCallback(() => {
+    setChatDrawerOpen(false);
+  }, []);
 
   const selectedAgent =
     agents.find((a) => a.id === selectedAgentId) ?? agents.find((a) => a.isHQ) ?? agents[0];
@@ -362,7 +366,6 @@ export default function AgentCityView({
   const totalSessions = agents.reduce((sum, a) => sum + a.sessionsCount, 0);
   const totalTokens = agents.reduce((sum, a) => sum + a.tokensUsed, 0);
 
-  const selectedMood = selectedAgent ? moods[selectedAgent.id] : undefined;
   const activeThread = selectedAgent ? chats[selectedAgent.id] ?? [] : [];
   const isSendingToSelected = Boolean(selectedAgent && sendingAgentId === selectedAgent.id);
 
@@ -471,7 +474,7 @@ export default function AgentCityView({
             theme={theme}
             floorView={floorView}
             cameraPresetTrigger={cameraPreset}
-            onMoodSnapshot={setMoods}
+            onSelectedMoodChange={setSelectedMood}
           />
 
           {/* Collapsible Unified Bottom Control & Inspector Dock (no backdrop-blur over WebGL) */}
@@ -682,14 +685,14 @@ export default function AgentCityView({
           <InOfficeChatPanel
             agents={agents}
             selectedAgent={selectedAgent}
-            selectedMood={selectedMood}
+            selectedMood={selectedMood ?? undefined}
             thread={activeThread}
             isSending={isSendingToSelected}
             onSelectAgent={onSelectAgent}
             onSendMessage={onSendMessage}
             onClearThread={onClearThread}
             onOpenFullChat={onOpenChat}
-            onClose={() => setChatDrawerOpen(false)}
+            onClose={handleCloseChat}
           />
         )}
       </div>
@@ -779,4 +782,6 @@ export default function AgentCityView({
       )}
     </div>
   );
-}
+});
+
+export default AgentCityView;

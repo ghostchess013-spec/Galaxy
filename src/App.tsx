@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Building2,
@@ -166,6 +166,88 @@ const MANAGE_NAV: Array<{ id: NavSection; label: string; icon: typeof Compass }>
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
+/**
+ * Isolated 1-second clock widget so ticking seconds never re-render the root App
+ * or the active 3D WebGL Agent Office viewport.
+ */
+const LiveClock = memo(function LiveClock({
+  cityLabel,
+  timezone,
+}: {
+  cityLabel: string;
+  timezone: string;
+}) {
+  const [clockText, setClockText] = useState('');
+
+  useEffect(() => {
+    const updateClock = () => {
+      try {
+        const formatted = new Intl.DateTimeFormat('en-GB', {
+          timeZone: timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }).format(new Date());
+        setClockText(formatted);
+      } catch {
+        setClockText(new Date().toLocaleTimeString('en-GB', { hour12: false }));
+      }
+    };
+    updateClock();
+    const id = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(id);
+  }, [timezone]);
+
+  return (
+    <div className="text-right leading-tight">
+      <div className="text-[10px] tracking-[0.14em] uppercase text-[var(--nx-text-subtle)]">
+        {cityLabel}
+      </div>
+      <div className="font-mono text-xs font-medium text-[var(--nx-text)] tabular-nums">
+        {clockText || '00:00:00'}
+      </div>
+    </div>
+  );
+});
+
+function agentsAreEquivalent(prev: Agent[], next: Agent[]): boolean {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.id !== b.id ||
+      a.name !== b.name ||
+      a.role !== b.role ||
+      a.status !== b.status ||
+      a.currentTask !== b.currentTask ||
+      a.model !== b.model ||
+      a.avatarUrl !== b.avatarUrl ||
+      a.sessionsCount !== b.sessionsCount ||
+      a.tokensUsed !== b.tokensUsed
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function healthChecksAreEquivalent(prev: HealthCheck[], next: HealthCheck[]): boolean {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    if (
+      prev[i].id !== next[i].id ||
+      prev[i].status !== next[i].status ||
+      prev[i].latencyMs !== next[i].latencyMs ||
+      prev[i].detail !== next[i].detail
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export default function App() {
   const [initial] = useState<PersistedState>(() => loadInitialState());
   const [section, setSection] = useState<NavSection>('cockpit');
@@ -191,7 +273,6 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
-  const [clockText, setClockText] = useState('');
 
   const [sessionToken, setSessionToken] = useState<string>(() => parseAndScrubUrlToken());
   const [bridgeCookieAuth, setBridgeCookieAuth] = useState<boolean>(false);
@@ -203,8 +284,31 @@ export default function App() {
   const chatRevertTimersRef = useRef<Record<string, number>>({});
   const chatPrevStateRef = useRef<Record<string, { status: AgentStatus; currentTask: string }>>({});
   const chatWorkingLockRef = useRef<Record<string, { task: string; untilMs: number }>>({});
+  const latestTelemetryRef = useRef<BridgeTelemetry | null>(null);
+  const sectionRef = useRef<NavSection>(section);
+  const agentsRef = useRef<Agent[]>(agents);
+  const chatsRef = useRef<Record<string, ChatMessage[]>>(chats);
+  const settingsRef = useRef<OperatorSettings>(settings);
+  const bridgeStatusRef = useRef<BridgeConnectionStatus>(bridgeStatus);
+  const sessionTokenRef = useRef<string>(sessionToken);
 
   const hasBridgeAuth = Boolean(sessionToken || bridgeCookieAuth);
+  const hasBridgeAuthRef = useRef<boolean>(hasBridgeAuth);
+
+  sectionRef.current = section;
+  agentsRef.current = agents;
+  chatsRef.current = chats;
+  settingsRef.current = settings;
+  bridgeStatusRef.current = bridgeStatus;
+  sessionTokenRef.current = sessionToken;
+  hasBridgeAuthRef.current = hasBridgeAuth;
+
+  // Flush latest buffered telemetry snapshot when returning to Cockpit or Health
+  useEffect(() => {
+    if ((section === 'cockpit' || section === 'health') && latestTelemetryRef.current) {
+      setLiveTelemetry(latestTelemetryRef.current);
+    }
+  }, [section]);
 
   useEffect(() => {
     const timers = chatRevertTimersRef.current;
@@ -321,10 +425,15 @@ export default function App() {
             const msg = JSON.parse(String(ev.data)) as { type?: string; data?: BridgeTelemetry };
             if (msg.type === 'telemetry' && msg.data) {
               const snap = msg.data;
-              setLiveTelemetry(snap);
-              setBridgeStatus(snap.connected ? 'live' : 'error');
+              latestTelemetryRef.current = snap;
+              // Skip re-rendering root App for raw telemetry numbers while user is in 3D Agent Office
+              if (sectionRef.current !== 'city') {
+                setLiveTelemetry(snap);
+              }
+              const nextStatus: BridgeConnectionStatus = snap.connected ? 'live' : 'error';
+              setBridgeStatus((prev) => (prev === nextStatus ? prev : nextStatus));
               if (!snap.connected && snap.error) {
-                setBridgeError(snap.error);
+                setBridgeError((prev) => (prev === snap.error ? prev : snap.error ?? ''));
               }
               setAgents((prevAgents) => {
                 const merged = mergeBridgeTelemetry(
@@ -333,21 +442,35 @@ export default function App() {
                   INITIAL_HEALTH_CHECKS,
                   settings.showOnlyVpsAgents,
                 );
-                setHealthChecks(merged.healthChecks);
+                setHealthChecks((prevChecks) =>
+                  healthChecksAreEquivalent(prevChecks, merged.healthChecks)
+                    ? prevChecks
+                    : merged.healthChecks,
+                );
                 if (merged.interAgentLogs.length > 0) {
-                  setInterAgentLogs(merged.interAgentLogs);
+                  setInterAgentLogs((prevLogs) => {
+                    if (
+                      prevLogs.length === merged.interAgentLogs.length &&
+                      prevLogs[0]?.id === merged.interAgentLogs[0]?.id &&
+                      prevLogs[0]?.message === merged.interAgentLogs[0]?.message
+                    ) {
+                      return prevLogs;
+                    }
+                    return merged.interAgentLogs;
+                  });
                 }
                 const nowMs = Date.now();
-                return merged.agents.map((ag) => {
+                const reconciled = merged.agents.map((ag) => {
                   const lock = chatWorkingLockRef.current[ag.id];
                   if (lock && lock.untilMs > nowMs && ag.status === 'idle') {
-                    return { ...ag, status: 'working', currentTask: lock.task };
+                    return { ...ag, status: 'working' as const, currentTask: lock.task };
                   }
                   if (lock && lock.untilMs <= nowMs) {
                     delete chatWorkingLockRef.current[ag.id];
                   }
                   return ag;
                 });
+                return agentsAreEquivalent(prevAgents, reconciled) ? prevAgents : reconciled;
               });
             }
           } catch {
@@ -431,26 +554,7 @@ export default function App() {
     return () => window.clearTimeout(saveTimer);
   }, [agents, missions, chats, docs, crons, files, integrations, interAgentLogs, settings]);
 
-  // Live city clock in top bar
-  useEffect(() => {
-    const updateClock = () => {
-      try {
-        const formatted = new Intl.DateTimeFormat('en-GB', {
-          timeZone: settings.timezone,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-        }).format(new Date());
-        setClockText(formatted);
-      } catch {
-        setClockText(new Date().toLocaleTimeString('en-GB', { hour12: false }));
-      }
-    };
-    updateClock();
-    const id = window.setInterval(updateClock, 1000);
-    return () => window.clearInterval(id);
-  }, [settings.timezone]);
+  // Clock state isolated in <LiveClock /> above so App does not re-render every 1s
 
   // Keyboard shortcut Cmd/Ctrl + K opens Ask NEXORA
   useEffect(() => {
@@ -539,7 +643,7 @@ export default function App() {
     );
   };
 
-  const handleUpdateAgentStatus = (agentId: string, status: AgentStatus) => {
+  const handleUpdateAgentStatus = useCallback((agentId: string, status: AgentStatus) => {
     setAgents((prev) =>
       prev.map((a) =>
         a.id === agentId
@@ -556,7 +660,7 @@ export default function App() {
           : a,
       ),
     );
-  };
+  }, []);
 
   const handleHireSpecialist = (
     preset: RolePreset,
@@ -623,20 +727,24 @@ export default function App() {
     }
   };
 
-  const handleUpdateAgentAvatar = (agentId: string, avatarUrl: string) => {
-    const target = agents.find((a) => a.id === agentId);
+  const handleUpdateAgentAvatar = useCallback((agentId: string, avatarUrl: string) => {
+    const target = agentsRef.current.find((a) => a.id === agentId);
     setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, avatarUrl } : a)));
-    if (target && bridgeStatus === 'live' && hasBridgeAuth) {
+    if (target && bridgeStatusRef.current === 'live' && hasBridgeAuthRef.current) {
       const slug = target.isHQ ? 'default' : target.profileKey;
-      void updateBridgeAgentAvatar(settings.bridgeUrl, sessionToken, slug, avatarUrl).catch(
-        () => {},
-      );
+      void updateBridgeAgentAvatar(
+        settingsRef.current.bridgeUrl,
+        sessionTokenRef.current,
+        slug,
+        avatarUrl,
+      ).catch(() => {});
     }
-  };
+  }, []);
 
-  const handleRetireSpecialist = (agentId: string) => {
-    const target = agents.find((a) => a.id === agentId);
-    const { agents: nextAgents, removed } = retireSpecialist(agents, agentId);
+  const handleRetireSpecialist = useCallback((agentId: string) => {
+    const currentAgents = agentsRef.current;
+    const target = currentAgents.find((a) => a.id === agentId);
+    const { agents: nextAgents, removed } = retireSpecialist(currentAgents, agentId);
     if (removed) {
       setAgents(nextAgents);
       setSelectedAgentId('executor');
@@ -648,190 +756,214 @@ export default function App() {
           `Decommissioned ${target.buildingName} (${target.name}) and archived workspace.`,
         );
         if (
-          bridgeStatus === 'live' &&
-          hasBridgeAuth &&
+          bridgeStatusRef.current === 'live' &&
+          hasBridgeAuthRef.current &&
           target.profileKey !== 'default' &&
           target.profileKey !== 'vps-guardian'
         ) {
-          void deleteBridgeAgent(settings.bridgeUrl, sessionToken, target.profileKey).catch(() => {});
+          void deleteBridgeAgent(
+            settingsRef.current.bridgeUrl,
+            sessionTokenRef.current,
+            target.profileKey,
+          ).catch(() => {});
         }
       }
     }
-  };
+  }, []);
 
-  const handleSendChatMessage = (agentId: string, content: string, attachmentName?: string) => {
-    const agent = agents.find((a) => a.id === agentId) ?? agents[0];
-    const trimmed = content.trim();
-    if (!trimmed) return;
-    const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const operatorMsg: ChatMessage = {
-      id: `cm-u-${Date.now()}`,
-      agentId: agent.id,
-      sender: 'operator',
-      content: trimmed,
-      timestamp: ts,
-      attachmentName,
-    };
-
-    const promptPreview = trimmed.length > 42 ? `${trimmed.slice(0, 42)}…` : trimmed;
-
-    // Remember original status so idle agents walk to their Floor 1 desk to work while replying,
-    // then naturally return to relaxing/hanging out after finishing the conversation.
-    if (!chatPrevStateRef.current[agent.id]) {
-      chatPrevStateRef.current[agent.id] = {
-        status: agent.status,
-        currentTask: agent.currentTask,
+  const handleSendChatMessage = useCallback(
+    (agentId: string, content: string, attachmentName?: string) => {
+      const currentAgents = agentsRef.current;
+      const agent = currentAgents.find((a) => a.id === agentId) ?? currentAgents[0];
+      if (!agent) return;
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const operatorMsg: ChatMessage = {
+        id: `cm-u-${Date.now()}`,
+        agentId: agent.id,
+        sender: 'operator',
+        content: trimmed,
+        timestamp: ts,
+        attachmentName,
       };
-    }
-    if (chatRevertTimersRef.current[agent.id]) {
-      window.clearTimeout(chatRevertTimersRef.current[agent.id]);
-      delete chatRevertTimersRef.current[agent.id];
-    }
 
-    const markAgentWorking = (taskText: string, lockMs = 60000) => {
-      chatWorkingLockRef.current[agent.id] = {
-        task: taskText,
-        untilMs: Date.now() + lockMs,
-      };
-      setAgents((prev) =>
-        prev.map((a) =>
-          a.id === agent.id ? { ...a, status: 'working', currentTask: taskText } : a,
-        ),
-      );
-    };
+      const promptPreview = trimmed.length > 42 ? `${trimmed.slice(0, 42)}…` : trimmed;
 
-    const scheduleIdleReturn = (delayMs: number) => {
-      const prevSnapshot = chatPrevStateRef.current[agent.id];
-      const existingLock = chatWorkingLockRef.current[agent.id];
-      if (existingLock) {
-        chatWorkingLockRef.current[agent.id] = {
-          ...existingLock,
-          untilMs: Date.now() + delayMs,
+      // Remember original status so idle agents walk to their Floor 1 desk to work while replying,
+      // then naturally return to relaxing/hanging out after finishing the conversation.
+      if (!chatPrevStateRef.current[agent.id]) {
+        chatPrevStateRef.current[agent.id] = {
+          status: agent.status,
+          currentTask: agent.currentTask,
         };
       }
-      chatRevertTimersRef.current[agent.id] = window.setTimeout(() => {
+      if (chatRevertTimersRef.current[agent.id]) {
+        window.clearTimeout(chatRevertTimersRef.current[agent.id]);
         delete chatRevertTimersRef.current[agent.id];
-        delete chatPrevStateRef.current[agent.id];
-        delete chatWorkingLockRef.current[agent.id];
-        if (!prevSnapshot) return;
+      }
+
+      const markAgentWorking = (taskText: string, lockMs = 60000) => {
+        chatWorkingLockRef.current[agent.id] = {
+          task: taskText,
+          untilMs: Date.now() + lockMs,
+        };
         setAgents((prev) =>
           prev.map((a) =>
-            a.id === agent.id
-              ? {
-                  ...a,
-                  status: prevSnapshot.status,
-                  currentTask: prevSnapshot.currentTask,
-                }
-              : a,
+            a.id === agent.id ? { ...a, status: 'working', currentTask: taskText } : a,
           ),
         );
-      }, delayMs);
-    };
+      };
 
-    markAgentWorking(`Memproses chat: "${promptPreview}"`, 65000);
+      const scheduleIdleReturn = (delayMs: number) => {
+        const prevSnapshot = chatPrevStateRef.current[agent.id];
+        const existingLock = chatWorkingLockRef.current[agent.id];
+        if (existingLock) {
+          chatWorkingLockRef.current[agent.id] = {
+            ...existingLock,
+            untilMs: Date.now() + delayMs,
+          };
+        }
+        chatRevertTimersRef.current[agent.id] = window.setTimeout(() => {
+          delete chatRevertTimersRef.current[agent.id];
+          delete chatPrevStateRef.current[agent.id];
+          delete chatWorkingLockRef.current[agent.id];
+          if (!prevSnapshot) return;
+          setAgents((prev) =>
+            prev.map((a) =>
+              a.id === agent.id
+                ? {
+                    ...a,
+                    status: prevSnapshot.status,
+                    currentTask: prevSnapshot.currentTask,
+                  }
+                : a,
+            ),
+          );
+        }, delayMs);
+      };
 
-    if (bridgeStatus === 'live' && hasBridgeAuth) {
-      const priorHistory = (chats[agent.id] ?? [])
-        .filter((m) => !m.content.startsWith('Live bridge error:'))
-        .slice(-10)
-        .map((m) => ({
-          role: (m.sender === 'operator' ? 'user' : 'assistant') as 'user' | 'assistant',
-          content: m.content,
+      markAgentWorking(`Memproses chat: "${promptPreview}"`, 65000);
+
+      if (bridgeStatusRef.current === 'live' && hasBridgeAuthRef.current) {
+        const priorHistory = (chatsRef.current[agent.id] ?? [])
+          .filter((m) => !m.content.startsWith('Live bridge error:'))
+          .slice(-10)
+          .map((m) => ({
+            role: (m.sender === 'operator' ? 'user' : 'assistant') as 'user' | 'assistant',
+            content: m.content,
+          }));
+        setChats((prev) => ({
+          ...prev,
+          [agent.id]: [...(prev[agent.id] ?? []), operatorMsg],
         }));
+        setSendingChatAgentId(agent.id);
+        void sendBridgeChat(settingsRef.current.bridgeUrl, sessionTokenRef.current, {
+          agent_id: agent.isHQ ? 'default' : agent.profileKey,
+          message: trimmed,
+          model: agent.model || 'combo-best',
+          history: priorHistory,
+        })
+          .then((res) => {
+            const agentMsg: ChatMessage = {
+              id: `cm-a-${Date.now() + 1}`,
+              agentId: agent.id,
+              sender: 'agent',
+              content: res.reply,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              modelUsed: res.model,
+              latencyMs: res.latency_ms,
+              toolTrace: ['9router :20128', `profile:${agent.profileKey}`],
+            };
+            setChats((prev) => ({
+              ...prev,
+              [agent.id]: [...(prev[agent.id] ?? []), agentMsg],
+            }));
+            markAgentWorking(`Selesai menjawab: "${promptPreview}"`);
+          })
+          .catch((err) => {
+            const errMsg: ChatMessage = {
+              id: `cm-e-${Date.now() + 1}`,
+              agentId: agent.id,
+              sender: 'agent',
+              content: `Live bridge error: ${err instanceof Error ? err.message : String(err)}`,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            };
+            setChats((prev) => ({
+              ...prev,
+              [agent.id]: [...(prev[agent.id] ?? []), errMsg],
+            }));
+          })
+          .finally(() => {
+            setSendingChatAgentId((cur) => (cur === agent.id ? null : cur));
+            scheduleIdleReturn(14000);
+          });
+        return;
+      }
+
+      // Demo Preview mode: show operator message immediately and animate agent typing at desk briefly
       setChats((prev) => ({
         ...prev,
         [agent.id]: [...(prev[agent.id] ?? []), operatorMsg],
       }));
       setSendingChatAgentId(agent.id);
-      void sendBridgeChat(settings.bridgeUrl, sessionToken, {
-        agent_id: agent.isHQ ? 'default' : agent.profileKey,
-        message: trimmed,
-        model: agent.model || 'combo-best',
-        history: priorHistory,
-      })
-        .then((res) => {
-          const agentMsg: ChatMessage = {
-            id: `cm-a-${Date.now() + 1}`,
-            agentId: agent.id,
-            sender: 'agent',
-            content: res.reply,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            modelUsed: res.model,
-            latencyMs: res.latency_ms,
-            toolTrace: ['9router :20128', `profile:${agent.profileKey}`],
-          };
-          setChats((prev) => ({
-            ...prev,
-            [agent.id]: [...(prev[agent.id] ?? []), agentMsg],
-          }));
-          markAgentWorking(`Selesai menjawab: "${promptPreview}"`);
-        })
-        .catch((err) => {
-          const errMsg: ChatMessage = {
-            id: `cm-e-${Date.now() + 1}`,
-            agentId: agent.id,
-            sender: 'agent',
-            content: `Live bridge error: ${err instanceof Error ? err.message : String(err)}`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          };
-          setChats((prev) => ({
-            ...prev,
-            [agent.id]: [...(prev[agent.id] ?? []), errMsg],
-          }));
-        })
-        .finally(() => {
-          setSendingChatAgentId((cur) => (cur === agent.id ? null : cur));
-          scheduleIdleReturn(14000);
-        });
-      return;
-    }
 
-    // Demo Preview mode: show operator message immediately and animate agent typing at desk briefly
-    setChats((prev) => ({
-      ...prev,
-      [agent.id]: [...(prev[agent.id] ?? []), operatorMsg],
-    }));
-    setSendingChatAgentId(agent.id);
+      window.setTimeout(() => {
+        const reply = generateAgentReply(agent, trimmed, agentsRef.current);
+        const agentMsg: ChatMessage = {
+          id: `cm-a-${Date.now() + 1}`,
+          agentId: agent.id,
+          sender: 'agent',
+          content: reply.text,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          modelUsed: agent.model,
+          latencyMs: 920 + Math.round(agent.avgReplySec * 140),
+          toolTrace: reply.toolTrace,
+        };
 
-    window.setTimeout(() => {
-      const reply = generateAgentReply(agent, trimmed, agents);
-      const agentMsg: ChatMessage = {
-        id: `cm-a-${Date.now() + 1}`,
-        agentId: agent.id,
-        sender: 'agent',
-        content: reply.text,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        modelUsed: agent.model,
-        latencyMs: 920 + Math.round(agent.avgReplySec * 140),
-        toolTrace: reply.toolTrace,
-      };
+        setChats((prev) => ({
+          ...prev,
+          [agent.id]: [...(prev[agent.id] ?? []), agentMsg],
+        }));
+        setSendingChatAgentId((cur) => (cur === agent.id ? null : cur));
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === agent.id
+              ? {
+                  ...a,
+                  status: 'working',
+                  currentTask: `Selesai menjawab: "${promptPreview}"`,
+                  sessionsCount: a.sessionsCount + 1,
+                  tokensUsed: a.tokensUsed + 1480,
+                }
+              : a,
+          ),
+        );
+        scheduleIdleReturn(14000);
+      }, 850);
+    },
+    [],
+  );
 
-      setChats((prev) => ({
-        ...prev,
-        [agent.id]: [...(prev[agent.id] ?? []), agentMsg],
-      }));
-      setSendingChatAgentId((cur) => (cur === agent.id ? null : cur));
-      setAgents((prev) =>
-        prev.map((a) =>
-          a.id === agent.id
-            ? {
-                ...a,
-                status: 'working',
-                currentTask: `Selesai menjawab: "${promptPreview}"`,
-                sessionsCount: a.sessionsCount + 1,
-                tokensUsed: a.tokensUsed + 1480,
-              }
-            : a,
-        ),
-      );
-      scheduleIdleReturn(14000);
-    }, 850);
-  };
-
-  const handleOpenChat = (agentId: string) => {
+  const handleOpenChat = useCallback((agentId: string) => {
     setActiveChatAgentId(agentId);
     setSection('chat');
-  };
+  }, []);
+
+  const handleOpenAddAgent = useCallback(() => {
+    setAddAgentOpen(true);
+  }, []);
+
+  const handleOpenAsk = useCallback(() => {
+    setAskOpen(true);
+  }, []);
+
+  const handleClearChatThread = useCallback((id: string) => {
+    setChats((prev) => ({
+      ...prev,
+      [id]: [],
+    }));
+  }, []);
 
   const handleRunDiagnostics = () => {
     if (bridgeStatus === 'live' && hasBridgeAuth) {
@@ -1280,14 +1412,7 @@ export default function App() {
               </div>
             </button>
 
-            <div className="text-right leading-tight">
-              <div className="text-[10px] tracking-[0.14em] uppercase text-[var(--nx-text-subtle)]">
-                {settings.cityLabel}
-              </div>
-              <div className="font-mono text-xs font-medium text-[var(--nx-text)] tabular-nums">
-                {clockText || '00:00:00'}
-              </div>
-            </div>
+            <LiveClock cityLabel={settings.cityLabel} timezone={settings.timezone} />
 
             <button
               type="button"
@@ -1325,8 +1450,8 @@ export default function App() {
               onApproveMission={handleApproveMission}
               onNavigate={setSection}
               onOpenChat={handleOpenChat}
-              onOpenAsk={() => setAskOpen(true)}
-              onOpenAddAgent={() => setAddAgentOpen(true)}
+              onOpenAsk={handleOpenAsk}
+              onOpenAddAgent={handleOpenAddAgent}
             />
           )}
 
@@ -1340,17 +1465,12 @@ export default function App() {
               onSelectAgent={setSelectedAgentId}
               onUpdateStatus={handleUpdateAgentStatus}
               onUpdateAvatar={handleUpdateAgentAvatar}
-              onOpenAddAgent={() => setAddAgentOpen(true)}
+              onOpenAddAgent={handleOpenAddAgent}
               onRetireSpecialist={handleRetireSpecialist}
               onOpenChat={handleOpenChat}
               onSendMessage={handleSendChatMessage}
-              onClearThread={(id) =>
-                setChats((prev) => ({
-                  ...prev,
-                  [id]: [],
-                }))
-              }
-              onOpenAsk={() => setAskOpen(true)}
+              onClearThread={handleClearChatThread}
+              onOpenAsk={handleOpenAsk}
             />
           )}
 

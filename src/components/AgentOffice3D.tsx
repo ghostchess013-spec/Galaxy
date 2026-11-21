@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -31,6 +31,7 @@ interface AgentOffice3DProps {
   floorView?: OfficeFloorView;
   cameraPresetTrigger?: { mode: OfficeCameraPreset; nonce: number };
   onMoodSnapshot?: (moods: Record<string, AgentLiveMood>) => void;
+  onSelectedMoodChange?: (mood: AgentLiveMood | null) => void;
 }
 
 type IdleActivityType = 'coffee' | 'tv' | 'billiard' | 'meeting' | 'reading' | 'stroll' | 'nap';
@@ -50,6 +51,7 @@ interface HumanoidRig {
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
   mug: THREE.Mesh;
+  contactShadow: THREE.Mesh;
   hitProxy: THREE.Mesh;
 }
 
@@ -73,6 +75,10 @@ interface AgentRuntime {
   faceAngle: number;
   nextSwitchAt: number;
   phaseOffset: number;
+  lastRenderedThought: string;
+  lastRenderedDot: string;
+  lastRenderedSelected: boolean | null;
+  lastRenderedBubbleVis: boolean | null;
 }
 
 const FLOOR2_Y = 4.55;
@@ -294,15 +300,41 @@ function buildRoutePath(fromFloor: 1 | 2, toFloor: 1 | 2, dest: Waypoint): Waypo
   ];
 }
 
+function createContactShadowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const grad = ctx.createRadialGradient(32, 32, 4, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(12, 10, 8, 0.42)');
+    grad.addColorStop(0.55, 'rgba(12, 10, 8, 0.2)');
+    grad.addColorStop(1, 'rgba(12, 10, 8, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function buildCompositeHumanoid(
   agent: Agent,
   paletteIdx: number,
+  contactShadowGeo: THREE.BufferGeometry,
+  contactShadowMat: THREE.Material,
   trackGeo: <T extends THREE.BufferGeometry>(g: T) => T,
   trackMat: <T extends THREE.Material>(m: T) => T,
 ): HumanoidRig {
   const root = new THREE.Group();
   const bodyPivot = new THREE.Group();
   root.add(bodyPivot);
+
+  // Lightweight grounded contact shadow disc (zero dynamic shadow-map cost while walking)
+  const contactShadow = new THREE.Mesh(contactShadowGeo, contactShadowMat);
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = 0.018;
+  root.add(contactShadow);
 
   const pal = AGENT_OUTFIT_PALETTE[paletteIdx % AGENT_OUTFIT_PALETTE.length];
   const h = hashSlug(agent.id);
@@ -330,11 +362,9 @@ function buildCompositeHumanoid(
     legGroup.position.set(xOff, 0.64, 0);
     const thigh = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.16, 0.56, 0.17)), pantsMat);
     thigh.position.y = -0.28;
-    thigh.castShadow = true;
     legGroup.add(thigh);
     const shoe = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.17, 0.1, 0.24)), shoeMat);
     shoe.position.set(0, -0.59, 0.04);
-    shoe.castShadow = true;
     legGroup.add(shoe);
     return legGroup;
   };
@@ -345,7 +375,6 @@ function buildCompositeHumanoid(
   // Torso (smart blazer/shirt + subtle collar)
   const torso = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.44, 0.54, 0.24)), shirtMat);
   torso.position.set(0, 0.92, 0);
-  torso.castShadow = true;
   torso.receiveShadow = true;
   bodyPivot.add(torso);
 
@@ -362,7 +391,6 @@ function buildCompositeHumanoid(
     armGroup.position.set(xOff, 1.14, 0);
     const sleeve = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.13, 0.42, 0.14)), shirtMat);
     sleeve.position.y = -0.19;
-    sleeve.castShadow = true;
     armGroup.add(sleeve);
     const hand = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.065, 10, 8)), skinMat);
     hand.position.y = -0.43;
@@ -391,7 +419,6 @@ function buildCompositeHumanoid(
 
   const cranium = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.19, 16, 14)), agent.isHQ ? visorMat : skinMat);
   cranium.position.y = 0.24;
-  cranium.castShadow = true;
   head.add(cranium);
 
   if (agent.isHQ) {
@@ -436,7 +463,7 @@ function buildCompositeHumanoid(
   hitProxy.userData.agentId = agent.id;
   root.add(hitProxy);
 
-  return { root, bodyPivot, head, leftArm, rightArm, leftLeg, rightLeg, mug, hitProxy };
+  return { root, bodyPivot, head, leftArm, rightArm, leftLeg, rightLeg, mug, contactShadow, hitProxy };
 }
 
 function buildWorkstationUnit(
@@ -698,6 +725,146 @@ function buildPottedPlant(
   return g;
 }
 
+/**
+ * Never-re-rendering WebGL canvas mount node so React reconciliations in ancestor
+ * views can never touch or disturb the mounted Three.js canvas element.
+ */
+const OfficeCanvasMount = memo(
+  function OfficeCanvasMount({ mountRef }: { mountRef: RefObject<HTMLDivElement | null> }) {
+    return <div ref={mountRef} className="w-full h-full" />;
+  },
+  () => true,
+);
+
+interface OfficeViewportProps {
+  agents: Agent[];
+  fleetLabelKey: string;
+  compact: boolean;
+  mountRef: RefObject<HTMLDivElement | null>;
+  labelRefs: MutableRefObject<Record<string, HTMLButtonElement | null>>;
+  labelBubbleBoxRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
+  labelThoughtRefs: MutableRefObject<Record<string, HTMLParagraphElement | null>>;
+  labelPillRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
+  labelDotRefs: MutableRefObject<Record<string, HTMLSpanElement | null>>;
+  onClickAgent: (agentId: string) => void;
+}
+
+/**
+ * Frozen viewport + floating label shell: ONLY re-renders when agents are added,
+ * removed, renamed, or compact mode changes. Live thought text, status dot colors,
+ * selection highlights, and 3D screen coordinates are updated imperatively inside
+ * the requestAnimationFrame loop with ZERO React re-renders.
+ */
+const OfficeViewport = memo(
+  function OfficeViewport({
+    agents,
+    compact,
+    mountRef,
+    labelRefs,
+    labelBubbleBoxRefs,
+    labelThoughtRefs,
+    labelPillRefs,
+    labelDotRefs,
+    onClickAgent,
+  }: OfficeViewportProps) {
+    return (
+      <div
+        className="relative w-full h-full overflow-hidden select-none [contain:layout_style]"
+        data-testid="agent-office-3d"
+        data-agent-count={agents.length}
+      >
+        <OfficeCanvasMount mountRef={mountRef} />
+
+        {/* Projected Floating Name + Role + Live Thought/Mood Bubbles above every Agent */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden [contain:layout_style]">
+          {agents.map((agent, idx) => {
+            const pal = AGENT_OUTFIT_PALETTE[idx % AGENT_OUTFIT_PALETTE.length];
+            const initialThought =
+              agent.status === 'working'
+                ? `💻 ${agent.currentTask}`
+                : agent.status === 'alert'
+                  ? `⚠️ ${agent.currentTask}`
+                  : '☕ Lagi santai di kantor...';
+            const initialDot =
+              agent.status === 'alert'
+                ? '#EF4444'
+                : agent.status === 'working'
+                  ? '#F95C19'
+                  : '#22C55E';
+
+            return (
+              <button
+                key={agent.id}
+                ref={(node) => {
+                  labelRefs.current[agent.id] = node;
+                }}
+                type="button"
+                onClick={() => onClickAgent(agent.id)}
+                className="pointer-events-auto absolute top-0 left-0 flex flex-col items-center gap-0.5 cursor-pointer will-change-transform focus-visible:outline-2 focus-visible:outline-offset-2"
+                aria-label={`Inspect ${agent.name}`}
+              >
+                <div
+                  ref={(node) => {
+                    labelBubbleBoxRefs.current[agent.id] = node;
+                  }}
+                  style={{
+                    backgroundColor: 'rgba(252, 250, 247, 0.96)',
+                    color: '#18181B',
+                    borderColor: 'rgba(24, 24, 27, 0.14)',
+                    display: !compact || agents.length <= 4 ? 'block' : 'none',
+                  }}
+                  className={`rounded-lg border shadow-md text-left ${
+                    compact ? 'px-2 py-0.5 max-w-[144px]' : 'px-2.5 py-1 max-w-[195px]'
+                  }`}
+                >
+                  <p
+                    ref={(node) => {
+                      labelThoughtRefs.current[agent.id] = node;
+                    }}
+                    className="text-[10px] leading-tight font-medium truncate"
+                  >
+                    {initialThought}
+                  </p>
+                </div>
+
+                <div
+                  ref={(node) => {
+                    labelPillRefs.current[agent.id] = node;
+                  }}
+                  data-default-bg={pal.badgeBg}
+                  style={{
+                    backgroundColor: pal.badgeBg,
+                    color: '#FFFFFF',
+                    borderColor: 'rgba(255,255,255,0.22)',
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap shadow-sm"
+                >
+                  <span
+                    ref={(node) => {
+                      labelDotRefs.current[agent.id] = node;
+                    }}
+                    className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: initialDot }}
+                    aria-hidden="true"
+                  />
+                  <span>{agent.name}</span>
+                  {!compact && (
+                    <span className="opacity-80 font-normal truncate max-w-[92px]">
+                      · {agent.role.split(' ')[0]}
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.compact === next.compact && prev.fleetLabelKey === next.fleetLabelKey,
+);
+
 const AgentOffice3D = memo(function AgentOffice3D({
   agents,
   selectedAgentId,
@@ -707,26 +874,45 @@ const AgentOffice3D = memo(function AgentOffice3D({
   floorView = 'all',
   cameraPresetTrigger,
   onMoodSnapshot,
+  onSelectedMoodChange,
 }: AgentOffice3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const labelRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const labelBubbleBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const labelThoughtRefs = useRef<Record<string, HTMLParagraphElement | null>>({});
+  const labelPillRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const labelDotRefs = useRef<Record<string, HTMLSpanElement | null>>({});
+
   const agentsRef = useRef<Agent[]>(agents);
+  const agentMapRef = useRef<Map<string, Agent>>(new Map());
   const selectedRef = useRef<string | null>(selectedAgentId);
   const onSelectRef = useRef(onSelectAgent);
   const themeRef = useRef<ThemeId>(theme);
   const floorViewRef = useRef<OfficeFloorView>(floorView);
   const onMoodSnapshotRef = useRef(onMoodSnapshot);
+  const onSelectedMoodChangeRef = useRef(onSelectedMoodChange);
 
-  agentsRef.current = agents;
+  // Sync latest refs without rebuilding meshes or re-rendering OfficeViewport
+  if (agentsRef.current !== agents || agentMapRef.current.size !== agents.length) {
+    agentsRef.current = agents;
+    const map = new Map<string, Agent>();
+    for (let i = 0; i < agents.length; i += 1) {
+      map.set(agents[i].id, agents[i]);
+    }
+    agentMapRef.current = map;
+  }
   selectedRef.current = selectedAgentId;
   onSelectRef.current = onSelectAgent;
   themeRef.current = theme;
   floorViewRef.current = floorView;
   onMoodSnapshotRef.current = onMoodSnapshot;
+  onSelectedMoodChangeRef.current = onSelectedMoodChange;
 
-  const [moodMap, setMoodMap] = useState<Record<string, AgentLiveMood>>({});
-
-  const fleetSignature = agents.map((a) => a.id).join('|');
+  const fleetSignature = useMemo(() => agents.map((a) => a.id).join('|'), [agents]);
+  const fleetLabelKey = useMemo(
+    () => agents.map((a) => `${a.id}:${a.name}:${a.role}`).join('|'),
+    [agents],
+  );
 
   const sceneApiRef = useRef<{
     rebuildDynamicFleet: (nextAgents: Agent[]) => void;
@@ -736,11 +922,18 @@ const AgentOffice3D = memo(function AgentOffice3D({
     setCameraPreset: (mode: OfficeCameraPreset) => void;
   } | null>(null);
 
+  const handleClickAgent = useCallback((agentId: string) => {
+    onSelectRef.current(agentId);
+    sceneApiRef.current?.focusAgent(agentId);
+  }, []);
+
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
     const isSoftwareGl = detectSoftwareWebGL();
+    const isMobileViewport = window.innerWidth < 768;
+    const enableBakedShadows = !isSoftwareGl && !isMobileViewport;
     const isLight = themeRef.current === 'editorial-alabaster';
 
     const dampAngle = (current: number, target: number, lambda: number, dt: number): number => {
@@ -767,14 +960,19 @@ const AgentOffice3D = memo(function AgentOffice3D({
       antialias: !isSoftwareGl,
       powerPreference: 'high-performance',
     });
-    renderer.setSize(width, height);
-    const maxDpr = window.innerWidth < 768 ? 1.5 : 2;
+    renderer.setSize(width, height, false);
+    renderer.domElement.style.width = '100%';
+    renderer.domElement.style.height = '100%';
+    renderer.domElement.style.display = 'block';
+    const maxDpr = isMobileViewport ? 1.5 : 2;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, maxDpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
-    renderer.shadowMap.enabled = !isSoftwareGl;
+    // Bake static architectural shadows ONCE instead of re-rendering 400+ meshes at 60fps
+    renderer.shadowMap.enabled = enableBakedShadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
@@ -791,7 +989,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
 
     const keyLight = new THREE.DirectionalLight(0xfff1dc, 1.55);
     keyLight.position.set(14, 26, 18);
-    keyLight.castShadow = !isSoftwareGl;
+    keyLight.castShadow = enableBakedShadows;
     keyLight.shadow.mapSize.set(1024, 1024);
     keyLight.shadow.camera.left = -18;
     keyLight.shadow.camera.right = 18;
@@ -1493,8 +1691,34 @@ const AgentOffice3D = memo(function AgentOffice3D({
     // =========================================================================
     // 9. DYNAMIC 1:1 WORKSTATIONS, 1:1 BEDS, AND AUTONOMOUS AI AGENTS
     // =========================================================================
+    const contactShadowTex = sTex(createContactShadowTexture());
+    const contactShadowGeo = sGeo(new THREE.CircleGeometry(0.38, 18));
+    const contactShadowMat = sMat(
+      new THREE.MeshBasicMaterial({
+        map: contactShadowTex,
+        transparent: true,
+        depthWrite: false,
+      }),
+    );
+
     const runtimes: AgentRuntime[] = [];
     const hitProxies: THREE.Mesh[] = [];
+    let lastSelectedMoodKey = '';
+
+    const pushSelectedMoodIfChanged = () => {
+      const selId = selectedRef.current;
+      if (!onSelectedMoodChangeRef.current) return;
+      const selRt = selId ? runtimes.find((r) => r.agentId === selId) : runtimes[0];
+      if (!selRt) return;
+      const nextKey = `${selRt.agentId}|${selRt.activity}|${selRt.moodEmoji}|${selRt.thought}|${selRt.currentFloor}`;
+      if (nextKey === lastSelectedMoodKey) return;
+      lastSelectedMoodKey = nextKey;
+      onSelectedMoodChangeRef.current({
+        activity: selRt.activity,
+        thought: `${selRt.moodEmoji} ${selRt.thought}`,
+        floor: selRt.currentFloor,
+      });
+    };
 
     const clearDynamic = () => {
       [dynamicFloor1Group, dynamicFloor2Group, agentsGroup].forEach((grp) => {
@@ -1564,7 +1788,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
         dynamicFloor2Group.add(bed);
 
         // Humanoid AI Agent Avatar
-        const rig = buildCompositeHumanoid(agent, idx, dGeo, dMat);
+        const rig = buildCompositeHumanoid(agent, idx, contactShadowGeo, contactShadowMat, dGeo, dMat);
         agentsGroup.add(rig.root);
         hitProxies.push(rig.hitProxy);
 
@@ -1640,20 +1864,32 @@ const AgentOffice3D = memo(function AgentOffice3D({
           faceAngle,
           nextSwitchAt,
           phaseOffset: idx * 1.17,
+          lastRenderedThought: '',
+          lastRenderedDot: '',
+          lastRenderedSelected: null,
+          lastRenderedBubbleVis: null,
         });
       });
 
-      // Push initial mood snapshot for UI badges
-      const snap: Record<string, AgentLiveMood> = {};
-      runtimes.forEach((r) => {
-        snap[r.agentId] = {
-          activity: r.activity,
-          thought: `${r.moodEmoji} ${r.thought}`,
-          floor: r.currentFloor,
-        };
-      });
-      setMoodMap(snap);
-      onMoodSnapshotRef.current?.(snap);
+      // Re-bake static office + workstation shadows once after fleet structure changes
+      if (enableBakedShadows) {
+        renderer.shadowMap.needsUpdate = true;
+      }
+
+      lastSelectedMoodKey = '';
+      pushSelectedMoodIfChanged();
+
+      if (onMoodSnapshotRef.current) {
+        const snap: Record<string, AgentLiveMood> = {};
+        runtimes.forEach((r) => {
+          snap[r.agentId] = {
+            activity: r.activity,
+            thought: `${r.moodEmoji} ${r.thought}`,
+            floor: r.currentFloor,
+          };
+        });
+        onMoodSnapshotRef.current(snap);
+      }
     };
 
     const applyFloorView = (mode: OfficeFloorView) => {
@@ -1661,6 +1897,9 @@ const AgentOffice3D = memo(function AgentOffice3D({
       const showFloor2 = mode === 'all' || mode === 'floor2';
       floor2StaticGroup.visible = showFloor2;
       dynamicFloor2Group.visible = showFloor2;
+      if (enableBakedShadows) {
+        renderer.shadowMap.needsUpdate = true;
+      }
 
       if (mode === 'floor2') {
         _targetLookAt.set(0, FLOOR2_Y + 0.8, -3.2);
@@ -1769,13 +2008,15 @@ const AgentOffice3D = memo(function AgentOffice3D({
       const entry = entries[0];
       const cw = entry ? entry.contentRect.width : container.clientWidth;
       const ch = entry ? entry.contentRect.height : container.clientHeight;
-      const w = Math.max(cw, 320);
-      const h = Math.max(ch, 260);
+      const w = Math.max(Math.round(cw), 320);
+      const h = Math.max(Math.round(ch), 260);
+      if (Math.abs(w - viewportW) < 2 && Math.abs(h - viewportH) < 2) return;
       viewportW = w;
       viewportH = h;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      renderer.setSize(w, h, false);
+      renderer.render(scene, camera);
     });
     resizeObserver.observe(container);
 
@@ -1835,11 +2076,9 @@ const AgentOffice3D = memo(function AgentOffice3D({
 
       controls.update();
 
-      const curAgents = agentsRef.current;
-      const agentById = new Map<string, Agent>();
-      for (let i = 0; i < curAgents.length; i += 1) {
-        agentById.set(curAgents[i].id, curAgents[i]);
-      }
+      const agentById = agentMapRef.current;
+      const curSelectedId = selectedRef.current;
+      const totalAgents = agentsRef.current.length;
 
       const w = viewportW;
       const h = viewportH;
@@ -1848,7 +2087,8 @@ const AgentOffice3D = memo(function AgentOffice3D({
       const padYBottom = compact ? 18 : 112;
       let moodDirty = false;
 
-      for (const rt of runtimes) {
+      for (let i = 0; i < runtimes.length; i += 1) {
+        const rt = runtimes[i];
         const agent = agentById.get(rt.agentId);
         if (!agent) continue;
 
@@ -1943,6 +2183,7 @@ const AgentOffice3D = memo(function AgentOffice3D({
         rig.root.position.copy(rt.currentPos);
         rig.root.rotation.y = rt.currentRotY;
         rig.mug.visible = !isWalking && rt.activity === 'coffee';
+        rig.contactShadow.visible = isWalking || rt.pose !== 'sleep';
 
         // Compute target body & limb pose, then blend smoothly (zero instant joint snapping)
         let targetPivotY = 0;
@@ -2006,6 +2247,50 @@ const AgentOffice3D = memo(function AgentOffice3D({
         rig.rightArm.rotation.x = THREE.MathUtils.damp(rig.rightArm.rotation.x, targetRightArm, jointLambda, dt);
         rig.head.rotation.y = THREE.MathUtils.damp(rig.head.rotation.y, targetHeadY, 9, dt);
 
+        // Imperatively sync thought text, status dot, and selection highlight (ZERO React re-renders)
+        const nextThoughtStr = `${rt.moodEmoji} ${rt.thought}`;
+        if (rt.lastRenderedThought !== nextThoughtStr) {
+          const thoughtEl = labelThoughtRefs.current[rt.agentId];
+          if (thoughtEl) {
+            thoughtEl.textContent = nextThoughtStr;
+            rt.lastRenderedThought = nextThoughtStr;
+          }
+        }
+
+        const nextDotColor =
+          agent.status === 'alert' ? '#EF4444' : agent.status === 'working' ? '#F95C19' : '#22C55E';
+        if (rt.lastRenderedDot !== nextDotColor) {
+          const dotEl = labelDotRefs.current[rt.agentId];
+          if (dotEl) {
+            dotEl.style.backgroundColor = nextDotColor;
+            rt.lastRenderedDot = nextDotColor;
+          }
+        }
+
+        const isSelected = curSelectedId === rt.agentId;
+        if (rt.lastRenderedSelected !== isSelected) {
+          const bubbleEl = labelBubbleBoxRefs.current[rt.agentId];
+          const pillEl = labelPillRefs.current[rt.agentId];
+          if (bubbleEl) {
+            bubbleEl.style.borderColor = isSelected ? '#F95C19' : 'rgba(24, 24, 27, 0.14)';
+          }
+          if (pillEl) {
+            const defaultBg = pillEl.dataset.defaultBg || '#F95C19';
+            pillEl.style.backgroundColor = isSelected ? '#F95C19' : defaultBg;
+            pillEl.style.borderColor = isSelected ? '#FFFFFF' : 'rgba(255,255,255,0.22)';
+          }
+          rt.lastRenderedSelected = isSelected;
+        }
+
+        const showBubble = !compact || isSelected || totalAgents <= 4;
+        if (rt.lastRenderedBubbleVis !== showBubble) {
+          const bubbleEl = labelBubbleBoxRefs.current[rt.agentId];
+          if (bubbleEl) {
+            bubbleEl.style.display = showBubble ? 'block' : 'none';
+            rt.lastRenderedBubbleVis = showBubble;
+          }
+        }
+
         // Project floating Name + Task + Thought Bubble above the agent's head
         const el = labelRefs.current[rt.agentId];
         if (el) {
@@ -2032,18 +2317,22 @@ const AgentOffice3D = memo(function AgentOffice3D({
         }
       }
 
-      if (moodDirty && elapsed - lastMoodSyncElapsed > 0.45) {
+      if (elapsed - lastMoodSyncElapsed > 0.45) {
         lastMoodSyncElapsed = elapsed;
-        const snap: Record<string, AgentLiveMood> = {};
-        runtimes.forEach((r) => {
-          snap[r.agentId] = {
-            activity: r.activity,
-            thought: `${r.moodEmoji} ${r.thought}`,
-            floor: r.currentFloor,
-          };
-        });
-        setMoodMap(snap);
-        onMoodSnapshotRef.current?.(snap);
+        pushSelectedMoodIfChanged();
+        if (moodDirty && onMoodSnapshotRef.current) {
+          const snap: Record<string, AgentLiveMood> = {};
+          runtimes.forEach((r) => {
+            snap[r.agentId] = {
+              activity: r.activity,
+              thought: `${r.moodEmoji} ${r.thought}`,
+              floor: r.currentFloor,
+            };
+          });
+          onMoodSnapshotRef.current(snap);
+        }
+      } else if (curSelectedId && !lastSelectedMoodKey.startsWith(`${curSelectedId}|`)) {
+        pushSelectedMoodIfChanged();
       }
 
       renderer.render(scene, camera);
@@ -2098,89 +2387,18 @@ const AgentOffice3D = memo(function AgentOffice3D({
   }, [cameraPresetTrigger]);
 
   return (
-    <div
-      className="relative w-full h-full overflow-hidden select-none [contain:layout_style]"
-      data-testid="agent-office-3d"
-      data-agent-count={agents.length}
-    >
-      <div ref={mountRef} className="w-full h-full" />
-
-      {/* Projected Floating Name + Role + Live Thought/Mood Bubbles above every Agent */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden [contain:layout_style]">
-        {agents.map((agent, idx) => {
-          const isSelected = selectedAgentId === agent.id;
-          const pal = AGENT_OUTFIT_PALETTE[idx % AGENT_OUTFIT_PALETTE.length];
-          const liveMood = moodMap[agent.id];
-          const thoughtLine =
-            agent.status === 'working'
-              ? `💻 ${agent.currentTask}`
-              : agent.status === 'alert'
-                ? `⚠️ ${agent.currentTask}`
-                : liveMood?.thought ?? '☕ Lagi santai di kantor...';
-
-          const statusDot =
-            agent.status === 'alert'
-              ? '#EF4444'
-              : agent.status === 'working'
-                ? '#F95C19'
-                : '#22C55E';
-
-          return (
-            <button
-              key={agent.id}
-              ref={(node) => {
-                labelRefs.current[agent.id] = node;
-              }}
-              type="button"
-              onClick={() => {
-                onSelectAgent(agent.id);
-                sceneApiRef.current?.focusAgent(agent.id);
-              }}
-              className="pointer-events-auto absolute top-0 left-0 flex flex-col items-center gap-0.5 cursor-pointer will-change-transform focus-visible:outline-2 focus-visible:outline-offset-2"
-              aria-label={`Inspect ${agent.name} (${agent.status})`}
-            >
-              {/* Floating Thought / Activity Speech Card (shown for all in Full Office, or selected/compact <= 4 agents in Cockpit) */}
-              {(!compact || isSelected || agents.length <= 4) && (
-                <div
-                  style={{
-                    backgroundColor: 'rgba(252, 250, 247, 0.96)',
-                    color: '#18181B',
-                    borderColor: isSelected ? '#F95C19' : 'rgba(24, 24, 27, 0.14)',
-                  }}
-                  className={`rounded-lg border shadow-md text-left ${
-                    compact ? 'px-2 py-0.5 max-w-[144px]' : 'px-2.5 py-1 max-w-[195px]'
-                  }`}
-                >
-                  <p className="text-[10px] leading-tight font-medium truncate">{thoughtLine}</p>
-                </div>
-              )}
-
-              {/* Colored Agent Name + Role Pill */}
-              <div
-                style={{
-                  backgroundColor: isSelected ? '#F95C19' : pal.badgeBg,
-                  color: '#FFFFFF',
-                  borderColor: isSelected ? '#FFFFFF' : 'rgba(255,255,255,0.22)',
-                }}
-                className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap shadow-sm"
-              >
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: statusDot }}
-                  aria-hidden="true"
-                />
-                <span>{agent.name}</span>
-                {!compact && (
-                  <span className="opacity-80 font-normal truncate max-w-[92px]">
-                    · {agent.role.split(' ')[0]}
-                  </span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <OfficeViewport
+      agents={agents}
+      fleetLabelKey={fleetLabelKey}
+      compact={compact}
+      mountRef={mountRef}
+      labelRefs={labelRefs}
+      labelBubbleBoxRefs={labelBubbleBoxRefs}
+      labelThoughtRefs={labelThoughtRefs}
+      labelPillRefs={labelPillRefs}
+      labelDotRefs={labelDotRefs}
+      onClickAgent={handleClickAgent}
+    />
   );
 });
 

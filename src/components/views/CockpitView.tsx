@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { ArrowUpRight, Check, Mic, Plus, ShieldCheck, UserPlus } from 'lucide-react';
 import type {
   Agent,
@@ -56,6 +57,14 @@ export default function CockpitView({
       : '0.0';
   const health = calculateHealthSummary(healthChecks);
   const executor = agents.find((a) => a.isHQ) ?? agents[0];
+
+  const handleSelectOfficeAgent = useCallback(
+    (id: string) => {
+      onSelectAgent(id);
+      onNavigate('city');
+    },
+    [onSelectAgent, onNavigate],
+  );
 
   return (
     <div className="space-y-6 pb-8">
@@ -232,14 +241,11 @@ export default function CockpitView({
             </div>
           </div>
 
-          <div className="relative flex-1 min-h-[360px]">
+          <div className="relative flex-1 min-h-[360px] [contain:layout_style]">
             <AgentOffice3D
               agents={agents}
               selectedAgentId={selectedAgentId}
-              onSelectAgent={(id) => {
-                onSelectAgent(id);
-                onNavigate('city');
-              }}
+              onSelectAgent={handleSelectOfficeAgent}
               theme={theme}
               compact
             />
