@@ -726,8 +726,11 @@ export default function AgentOffice3D({
 
   const [moodMap, setMoodMap] = useState<Record<string, AgentLiveMood>>({});
 
+  const fleetSignature = agents.map((a) => a.id).join('|');
+
   const sceneApiRef = useRef<{
-    rebuildDynamicFleet: (nextAgents: Agent[], nextTheme: ThemeId) => void;
+    rebuildDynamicFleet: (nextAgents: Agent[]) => void;
+    applyTheme: (nextTheme: ThemeId) => void;
     applyFloorView: (mode: OfficeFloorView) => void;
     focusAgent: (agentId: string | null) => void;
     setCameraPreset: (mode: OfficeCameraPreset) => void;
@@ -739,6 +742,11 @@ export default function AgentOffice3D({
 
     const isSoftwareGl = detectSoftwareWebGL();
     const isLight = themeRef.current === 'editorial-alabaster';
+
+    const dampAngle = (current: number, target: number, lambda: number, dt: number): number => {
+      const diff = ((target - current + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      return current + diff * (1 - Math.exp(-lambda * dt));
+    };
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(isLight ? 0xebe6dd : 0x0b0b0d);
@@ -760,7 +768,8 @@ export default function AgentOffice3D({
       powerPreference: 'high-performance',
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
+    const maxDpr = window.innerWidth < 768 ? 1.5 : 2;
+    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, maxDpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
@@ -1499,11 +1508,22 @@ export default function AgentOffice3D({
       dynMats.length = 0;
     };
 
-    const rebuildDynamicFleet = (list: Agent[], nextTheme: ThemeId) => {
-      clearDynamic();
+    const applyTheme = (nextTheme: ThemeId) => {
       const lightBg = nextTheme === 'editorial-alabaster';
       scene.background = new THREE.Color(lightBg ? 0xebe6dd : 0x0b0b0d);
       scene.fog = new THREE.FogExp2(lightBg ? 0xebe6dd : 0x0b0b0d, 0.0095);
+    };
+
+    const rebuildDynamicFleet = (list: Agent[]) => {
+      // Preserve live walking positions & activities for existing agents so adding/removing
+      // an agent never teleports or stutters other agents already moving around the office.
+      const prevById = new Map<string, AgentRuntime>();
+      for (const existing of runtimes) {
+        prevById.set(existing.agentId, existing);
+      }
+
+      clearDynamic();
+      applyTheme(themeRef.current);
 
       const total = list.length;
       const idleCycle: IdleActivityType[] = ['tv', 'coffee', 'billiard', 'nap', 'meeting', 'reading', 'stroll'];
@@ -1552,6 +1572,7 @@ export default function AgentOffice3D({
         const chairPos = new THREE.Vector3(dSlot.x, 0, dSlot.z + 0.72);
         const bedPos = new THREE.Vector3(bSlot.x, FLOOR2_Y, bSlot.z);
 
+        const prevRt = prevById.get(agent.id);
         let initialActivity: AgentRuntime['activity'] = 'working';
         let startPos = chairPos.clone();
         let startFloor: 1 | 2 = 1;
@@ -1559,12 +1580,27 @@ export default function AgentOffice3D({
         let faceAngle = Math.PI;
         let thought = agent.currentTask || WORKING_THOUGHTS[idx % WORKING_THOUGHTS.length];
         let moodEmoji = '💻';
+        let preservedPath: Waypoint[] = [];
+        let preservedRotY = faceAngle;
+        let nextSwitchAt = 6 + (idx * 3.7) % 9;
 
-        if (agent.status === 'alert') {
+        if (prevRt) {
+          initialActivity = prevRt.activity;
+          startPos = prevRt.currentPos.clone();
+          startFloor = prevRt.currentFloor;
+          pose = prevRt.pose;
+          faceAngle = prevRt.faceAngle;
+          preservedRotY = prevRt.currentRotY;
+          thought = prevRt.thought;
+          moodEmoji = prevRt.moodEmoji;
+          preservedPath = prevRt.path.map((wp) => ({ ...wp }));
+          nextSwitchAt = prevRt.nextSwitchAt;
+        } else if (agent.status === 'alert') {
           initialActivity = 'alert';
           startPos = new THREE.Vector3(dSlot.x, 0, dSlot.z + 1.15);
           pose = 'stand';
           faceAngle = 0;
+          preservedRotY = 0;
           moodEmoji = '⚠️';
           thought = agent.currentTask || 'Butuh persetujuan Operator!';
         } else if (agent.status === 'idle') {
@@ -1575,13 +1611,14 @@ export default function AgentOffice3D({
           startFloor = spot.floor;
           pose = spot.pose;
           faceAngle = spot.faceAngle;
+          preservedRotY = spot.faceAngle;
           const meta = IDLE_THOUGHTS[chosen];
           moodEmoji = meta.emoji;
           thought = meta.lines[idx % meta.lines.length];
         }
 
         rig.root.position.copy(startPos);
-        rig.root.rotation.y = faceAngle;
+        rig.root.rotation.y = preservedRotY;
 
         runtimes.push({
           agentId: agent.id,
@@ -1593,15 +1630,15 @@ export default function AgentOffice3D({
           bedRotY: bSlot.rotY,
           deskLedMat: ws.ledMat,
           currentPos: startPos,
-          currentRotY: faceAngle,
+          currentRotY: preservedRotY,
           currentFloor: startFloor,
-          path: [],
+          path: preservedPath,
           activity: initialActivity,
           thought,
           moodEmoji,
           pose,
           faceAngle,
-          nextSwitchAt: 6 + (idx * 3.7) % 9,
+          nextSwitchAt,
           phaseOffset: idx * 1.17,
         });
       });
@@ -1684,14 +1721,14 @@ export default function AgentOffice3D({
       transitioningCamera = true;
     };
 
-    rebuildDynamicFleet(agentsRef.current, themeRef.current);
+    rebuildDynamicFleet(agentsRef.current);
     applyFloorView(floorViewRef.current);
 
     if (!isSoftwareGl) {
       renderer.compile(scene, camera);
     }
 
-    sceneApiRef.current = { rebuildDynamicFleet, applyFloorView, focusAgent, setCameraPreset };
+    sceneApiRef.current = { rebuildDynamicFleet, applyTheme, applyFloorView, focusAgent, setCameraPreset };
 
     // Raycasting pointer click
     const raycaster = new THREE.Raycaster();
@@ -1768,7 +1805,7 @@ export default function AgentOffice3D({
     const tick = () => {
       if (disposed) return;
       const nowMs = performance.now();
-      const dt = Math.min((nowMs - lastMs) / 1000, 0.1);
+      const dt = Math.min((nowMs - lastMs) / 1000, 0.05);
       lastMs = nowMs;
       const elapsed = (nowMs - startMs) / 1000;
 
@@ -1791,6 +1828,11 @@ export default function AgentOffice3D({
       controls.update();
 
       const curAgents = agentsRef.current;
+      const agentById = new Map<string, Agent>();
+      for (let i = 0; i < curAgents.length; i += 1) {
+        agentById.set(curAgents[i].id, curAgents[i]);
+      }
+
       const w = container.clientWidth;
       const h = container.clientHeight;
       const padX = compact ? 58 : 74;
@@ -1799,24 +1841,30 @@ export default function AgentOffice3D({
       let moodDirty = false;
 
       for (const rt of runtimes) {
-        const agent = curAgents.find((a) => a.id === rt.agentId);
+        const agent = agentById.get(rt.agentId);
         if (!agent) continue;
 
-        // Reconcile status transitions (working / alert / idle)
-        if (agent.status === 'working' && rt.activity !== 'working') {
-          rt.activity = 'working';
-          rt.moodEmoji = '💻';
-          rt.thought = agent.currentTask || WORKING_THOUGHTS[rt.index % WORKING_THOUGHTS.length];
-          rt.path = buildRoutePath(rt.currentFloor, 1, {
-            x: rt.chairPos.x,
-            y: 0,
-            z: rt.chairPos.z,
-          });
-          rt.pose = 'sit';
-          rt.faceAngle = Math.PI;
-          rt.deskLedMat.color.setHex(0xf95c19);
-          rt.deskLedMat.emissive.setHex(0xf95c19);
-          moodDirty = true;
+        // Reconcile status transitions (working / alert / idle) without rebuilding meshes
+        if (agent.status === 'working') {
+          const nextTaskText = agent.currentTask || WORKING_THOUGHTS[rt.index % WORKING_THOUGHTS.length];
+          if (rt.activity !== 'working') {
+            rt.activity = 'working';
+            rt.moodEmoji = '💻';
+            rt.thought = nextTaskText;
+            rt.path = buildRoutePath(rt.currentFloor, 1, {
+              x: rt.chairPos.x,
+              y: 0,
+              z: rt.chairPos.z,
+            });
+            rt.pose = 'sit';
+            rt.faceAngle = Math.PI;
+            rt.deskLedMat.color.setHex(0xf95c19);
+            rt.deskLedMat.emissive.setHex(0xf95c19);
+            moodDirty = true;
+          } else if (rt.thought !== nextTaskText) {
+            rt.thought = nextTaskText;
+            moodDirty = true;
+          }
         } else if (agent.status === 'alert' && rt.activity !== 'alert') {
           rt.activity = 'alert';
           rt.moodEmoji = '⚠️';
@@ -1849,7 +1897,7 @@ export default function AgentOffice3D({
           }
         }
 
-        // Follow walking waypoints smoothly
+        // Follow walking waypoints smoothly with shortest-arc turning
         let isWalking = false;
         if (rt.path.length > 0) {
           const wp = rt.path[0];
@@ -1857,7 +1905,7 @@ export default function AgentOffice3D({
           const dy = wp.y - rt.currentPos.y;
           const dz = wp.z - rt.currentPos.z;
           const dist = Math.hypot(dx, dy, dz);
-          const speed = 2.65;
+          const speed = 2.45;
           if (dist < 0.08) {
             rt.currentPos.set(wp.x, wp.y, wp.z);
             rt.path.shift();
@@ -1870,10 +1918,10 @@ export default function AgentOffice3D({
             rt.currentPos.z += (dz / dist) * step;
             rt.currentFloor = rt.currentPos.y > FLOOR2_Y * 0.6 ? 2 : 1;
             const desiredRot = Math.atan2(dx, dz);
-            rt.currentRotY = THREE.MathUtils.damp(rt.currentRotY, desiredRot, 8, dt);
+            rt.currentRotY = dampAngle(rt.currentRotY, desiredRot, 10, dt);
           }
         } else {
-          rt.currentRotY = THREE.MathUtils.damp(rt.currentRotY, rt.faceAngle, 6, dt);
+          rt.currentRotY = dampAngle(rt.currentRotY, rt.faceAngle, 8, dt);
         }
 
         const { rig } = rt;
@@ -1888,55 +1936,67 @@ export default function AgentOffice3D({
         rig.root.rotation.y = rt.currentRotY;
         rig.mug.visible = !isWalking && rt.activity === 'coffee';
 
-        // Reset body transform before applying pose kinematics
-        rig.bodyPivot.rotation.set(0, 0, 0);
-        rig.bodyPivot.position.set(0, 0, 0);
+        // Compute target body & limb pose, then blend smoothly (zero instant joint snapping)
+        let targetPivotY = 0;
+        let targetPivotZ = 0;
+        let targetPivotRotX = 0;
+        let targetLeftLeg = 0;
+        let targetRightLeg = 0;
+        let targetLeftArm = 0;
+        let targetRightArm = 0;
+        let targetHeadY = 0;
 
         if (isWalking) {
-          const stride = Math.sin(elapsed * 8.5 + rt.phaseOffset);
-          rig.leftLeg.rotation.x = stride * 0.55;
-          rig.rightLeg.rotation.x = -stride * 0.55;
-          rig.leftArm.rotation.x = -stride * 0.45;
-          rig.rightArm.rotation.x = stride * 0.45;
-          rig.bodyPivot.position.y = Math.abs(stride) * 0.04;
+          const stride = Math.sin(elapsed * 8.2 + rt.phaseOffset);
+          targetPivotY = Math.abs(stride) * 0.038;
+          targetLeftLeg = stride * 0.52;
+          targetRightLeg = -stride * 0.52;
+          targetLeftArm = -stride * 0.42;
+          targetRightArm = stride * 0.42;
+          targetHeadY = Math.sin(elapsed * 2.0 + rt.phaseOffset) * 0.06;
         } else if (rt.pose === 'sleep') {
-          // Lying comfortably on their own Floor 2 bed!
-          rig.bodyPivot.position.set(0, 0.64, -0.58);
-          rig.bodyPivot.rotation.x = Math.PI / 2;
-          rig.leftLeg.rotation.x = 0.05;
-          rig.rightLeg.rotation.x = -0.05;
-          rig.leftArm.rotation.x = 0.15;
-          rig.rightArm.rotation.x = -0.15;
-          rig.head.rotation.y = Math.sin(elapsed * 0.8 + rt.phaseOffset) * 0.12;
+          targetPivotY = 0.64;
+          targetPivotZ = -0.58;
+          targetPivotRotX = Math.PI / 2;
+          targetLeftLeg = 0.05;
+          targetRightLeg = -0.05;
+          targetLeftArm = 0.15;
+          targetRightArm = -0.15;
+          targetHeadY = Math.sin(elapsed * 0.8 + rt.phaseOffset) * 0.12;
         } else if (rt.pose === 'sit') {
-          rig.bodyPivot.position.y = -0.22;
-          rig.leftLeg.rotation.x = -Math.PI * 0.46;
-          rig.rightLeg.rotation.x = -Math.PI * 0.46;
+          targetPivotY = -0.22;
+          targetLeftLeg = -Math.PI * 0.46;
+          targetRightLeg = -Math.PI * 0.46;
           if (rt.activity === 'working') {
-            const typeWave = Math.sin(elapsed * 12 + rt.phaseOffset);
-            rig.leftArm.rotation.x = -0.95 + typeWave * 0.12;
-            rig.rightArm.rotation.x = -0.95 - typeWave * 0.12;
-            rig.head.rotation.y = Math.sin(elapsed * 1.6 + rt.phaseOffset) * 0.18;
+            const typeWave = Math.sin(elapsed * 11 + rt.phaseOffset);
+            targetLeftArm = -0.95 + typeWave * 0.11;
+            targetRightArm = -0.95 - typeWave * 0.11;
+            targetHeadY = Math.sin(elapsed * 1.5 + rt.phaseOffset) * 0.16;
           } else {
-            rig.leftArm.rotation.x = -0.35;
-            rig.rightArm.rotation.x = -0.35;
-            rig.head.rotation.y = Math.sin(elapsed * 0.9 + rt.phaseOffset) * 0.14;
+            targetLeftArm = -0.35;
+            targetRightArm = -0.35;
+            targetHeadY = Math.sin(elapsed * 0.9 + rt.phaseOffset) * 0.14;
           }
         } else if (rt.activity === 'alert') {
-          const wave = Math.sin(elapsed * 7.5 + rt.phaseOffset);
-          rig.leftLeg.rotation.x = 0;
-          rig.rightLeg.rotation.x = 0;
-          rig.leftArm.rotation.x = -2.3 + wave * 0.35;
-          rig.rightArm.rotation.x = -2.3 - wave * 0.35;
+          const wave = Math.sin(elapsed * 7.2 + rt.phaseOffset);
+          targetLeftArm = -2.3 + wave * 0.32;
+          targetRightArm = -2.3 - wave * 0.32;
         } else {
-          // Standing idle (coffee / billiard / meeting / strolling pause)
-          const breathe = Math.sin(elapsed * 2.2 + rt.phaseOffset);
-          rig.leftLeg.rotation.x = 0;
-          rig.rightLeg.rotation.x = 0;
-          rig.leftArm.rotation.x = rt.activity === 'billiard' ? -0.45 : breathe * 0.06;
-          rig.rightArm.rotation.x = rt.activity === 'coffee' ? -1.05 + breathe * 0.08 : -breathe * 0.06;
-          rig.head.rotation.y = Math.sin(elapsed * 1.1 + rt.phaseOffset) * 0.25;
+          const breathe = Math.sin(elapsed * 2.1 + rt.phaseOffset);
+          targetLeftArm = rt.activity === 'billiard' ? -0.45 : breathe * 0.06;
+          targetRightArm = rt.activity === 'coffee' ? -1.05 + breathe * 0.08 : -breathe * 0.06;
+          targetHeadY = Math.sin(elapsed * 1.1 + rt.phaseOffset) * 0.22;
         }
+
+        const jointLambda = isWalking ? 18 : 11;
+        rig.bodyPivot.position.y = THREE.MathUtils.damp(rig.bodyPivot.position.y, targetPivotY, 12, dt);
+        rig.bodyPivot.position.z = THREE.MathUtils.damp(rig.bodyPivot.position.z, targetPivotZ, 12, dt);
+        rig.bodyPivot.rotation.x = THREE.MathUtils.damp(rig.bodyPivot.rotation.x, targetPivotRotX, 11, dt);
+        rig.leftLeg.rotation.x = THREE.MathUtils.damp(rig.leftLeg.rotation.x, targetLeftLeg, jointLambda, dt);
+        rig.rightLeg.rotation.x = THREE.MathUtils.damp(rig.rightLeg.rotation.x, targetRightLeg, jointLambda, dt);
+        rig.leftArm.rotation.x = THREE.MathUtils.damp(rig.leftArm.rotation.x, targetLeftArm, jointLambda, dt);
+        rig.rightArm.rotation.x = THREE.MathUtils.damp(rig.rightArm.rotation.x, targetRightArm, jointLambda, dt);
+        rig.head.rotation.y = THREE.MathUtils.damp(rig.head.rotation.y, targetHeadY, 9, dt);
 
         // Project floating Name + Task + Thought Bubble above the agent's head
         const el = labelRefs.current[rt.agentId];
@@ -2008,10 +2068,15 @@ export default function AgentOffice3D({
     };
   }, [compact]);
 
-  // Rebuild 1:1 workstations, 1:1 beds, and agents whenever fleet or theme changes
+  // Rebuild 1:1 workstations & 1:1 beds ONLY when agents are added/removed (never on 2.5s telemetry ticks!)
   useEffect(() => {
-    sceneApiRef.current?.rebuildDynamicFleet(agents, theme);
-  }, [agents, theme]);
+    sceneApiRef.current?.rebuildDynamicFleet(agentsRef.current);
+  }, [fleetSignature]);
+
+  // Apply theme backdrop cleanly without resetting agent walking positions
+  useEffect(() => {
+    sceneApiRef.current?.applyTheme(theme);
+  }, [theme]);
 
   // Floor visibility transitions
   useEffect(() => {
@@ -2063,7 +2128,7 @@ export default function AgentOffice3D({
                 onSelectAgent(agent.id);
                 sceneApiRef.current?.focusAgent(agent.id);
               }}
-              className="pointer-events-auto absolute top-0 left-0 flex flex-col items-center gap-0.5 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2"
+              className="pointer-events-auto absolute top-0 left-0 flex flex-col items-center gap-0.5 cursor-pointer will-change-transform focus-visible:outline-2 focus-visible:outline-offset-2"
               aria-label={`Inspect ${agent.name} (${agent.status})`}
             >
               {/* Floating Thought / Activity Speech Card (shown for all in Full Office, or selected/compact <= 4 agents in Cockpit) */}
