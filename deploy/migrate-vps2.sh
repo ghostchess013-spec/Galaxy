@@ -84,7 +84,7 @@ fi
 
 # 3. Acquire or update source code
 echo ""
-echo "[2/6] Mengambil source code NEXORA 3.0..."
+echo "[2/6] Mengambil source code GALAXY..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -z "$REPO_URL" ] && [ -f "$SCRIPT_DIR/../package.json" ]; then
   SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -100,18 +100,18 @@ elif [ -n "$REPO_URL" ]; then
   fi
 else
   echo "ERROR: Berikan URL repositori GitHub sebagai argumen pertama."
-  echo "Contoh: bash migrate-vps2.sh https://github.com/USERNAME/nexora-mission-control.git"
+  echo "Contoh: bash migrate-vps2.sh https://github.com/ghostchess013-spec/Galaxy.git"
   exit 1
 fi
 
 # 4. Build production Vite frontend
 echo ""
-echo "[3/6] Mem-build frontend produksi NEXORA 3.0..."
+echo "[3/6] Mem-build frontend produksi GALAXY..."
 cd "$SRC_DIR"
 if [ -f "package-lock.json" ]; then
-  npm ci --no-audit --no-fund
+  npm ci --legacy-peer-deps --no-audit --no-fund || npm install --legacy-peer-deps --no-audit --no-fund
 else
-  npm install --no-audit --no-fund
+  npm install --legacy-peer-deps --no-audit --no-fund
 fi
 npm run build
 

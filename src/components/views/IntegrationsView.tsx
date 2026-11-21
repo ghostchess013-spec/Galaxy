@@ -31,10 +31,11 @@ export default function IntegrationsView({
 }: IntegrationsViewProps) {
   const [pingResult, setPingResult] = useState<string>('');
   const [checking, setChecking] = useState(false);
-  const [repoUrl, setRepoUrl] = useState('https://github.com/USERNAME/nexora-mission-control.git');
+  const [repoUrl, setRepoUrl] = useState('https://github.com/ghostchess013-spec/Galaxy.git');
   const [copiedCmd, setCopiedCmd] = useState(false);
 
-  const migrateCommand = `git clone --depth 1 "${repoUrl.trim() || 'https://github.com/USERNAME/nexora-mission-control.git'}" ~/nexora-v3-src 2>/dev/null || (git -C ~/nexora-v3-src fetch --all && git -C ~/nexora-v3-src reset --hard origin/HEAD) && bash ~/nexora-v3-src/deploy/migrate-vps2.sh "${repoUrl.trim() || 'https://github.com/USERNAME/nexora-mission-control.git'}"`;
+  const resolvedRepo = repoUrl.trim() || 'https://github.com/ghostchess013-spec/Galaxy.git';
+  const migrateCommand = `REPO="${resolvedRepo}" && (git clone --depth 1 "$REPO" ~/nexora-v3-src 2>/dev/null || (git -C ~/nexora-v3-src remote set-url origin "$REPO" && git -C ~/nexora-v3-src fetch --all && git -C ~/nexora-v3-src reset --hard origin/HEAD)) && bash ~/nexora-v3-src/deploy/migrate-vps2.sh "$REPO"`;
 
   const handleTestBridge = async () => {
     setChecking(true);
