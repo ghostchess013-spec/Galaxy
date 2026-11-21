@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import AddAgentModal, { type CustomAgentDraft } from './components/AddAgentModal';
 import AskNexoraModal from './components/AskNexoraModal';
+import GalaxyLogo from './components/GalaxyLogo';
 import AgentCityView from './components/views/AgentCityView';
 import ChatView from './components/views/ChatView';
 import CockpitView from './components/views/CockpitView';
@@ -839,8 +840,14 @@ export default function App() {
           }}
           className="w-full max-w-sm rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] p-6 space-y-4 text-center"
         >
-          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]">
-            <Lock className="h-5 w-5" />
+          <div className="relative mx-auto inline-flex items-center justify-center">
+            <GalaxyLogo
+              size={54}
+              className="drop-shadow-[0_0_18px_rgba(249,92,25,0.32)]"
+            />
+            <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--nx-bg-elevated)] bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]">
+              <Lock className="h-2.5 w-2.5" />
+            </span>
           </div>
           <div>
             <p className="text-[11px] tracking-[0.16em] uppercase text-[var(--nx-text-muted)]">
@@ -872,23 +879,24 @@ export default function App() {
   const renderSidebarContent = () => (
     <div className="flex h-full flex-col justify-between p-4">
       <div className="space-y-6 overflow-y-auto pr-1">
-        {/* Brand Monogram Header matching NEXORA 3.0 */}
+        {/* Signature GALAXY Brand Emblem Header */}
         <button
           type="button"
           onClick={() => {
             setSection('cockpit');
             setMobileNavOpen(false);
           }}
-          className="flex items-center gap-3 px-2 text-left cursor-pointer"
+          className="group flex items-center gap-3 px-1.5 text-left cursor-pointer"
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] font-editorial text-base font-semibold text-[var(--nx-text)] shrink-0">
-            G
-          </span>
+          <GalaxyLogo
+            size={36}
+            className="shrink-0 transition-transform duration-300 group-hover:scale-105 drop-shadow-[0_0_12px_rgba(249,92,25,0.28)]"
+          />
           <div className="min-w-0">
-            <div className="text-sm font-bold tracking-[0.12em] text-[var(--nx-text)] leading-none">
+            <div className="text-sm font-bold tracking-[0.16em] text-[var(--nx-text)] leading-none">
               GALAXY
             </div>
-            <div className="text-[9px] tracking-[0.16em] uppercase text-[var(--nx-text-subtle)] mt-1">
+            <div className="text-[9px] tracking-[0.18em] uppercase text-[var(--nx-text-subtle)] mt-1">
               Operator System
             </div>
           </div>
@@ -1012,7 +1020,7 @@ export default function App() {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top Utility Bar matching NEXORA 3.0 */}
         <header className="sticky top-0 z-30 h-14 border-b border-[var(--nx-border)] bg-[var(--nx-bg)]/95 px-4 lg:px-6 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 lg:hidden">
+          <div className="flex items-center gap-2.5 lg:hidden">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
@@ -1021,7 +1029,14 @@ export default function App() {
             >
               <Menu className="h-4 w-4" />
             </button>
-            <span className="text-sm font-bold tracking-[0.12em]">GALAXY</span>
+            <button
+              type="button"
+              onClick={() => setSection('cockpit')}
+              className="flex items-center gap-2 cursor-pointer"
+            >
+              <GalaxyLogo size={28} className="shrink-0 drop-shadow-[0_0_8px_rgba(249,92,25,0.25)]" />
+              <span className="text-sm font-bold tracking-[0.16em]">GALAXY</span>
+            </button>
           </div>
 
           {/* Centered Global Search */}

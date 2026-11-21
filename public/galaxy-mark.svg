@@ -1,0 +1,49 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1D1B1C"/>
+      <stop offset="52%" stop-color="#111011"/>
+      <stop offset="100%" stop-color="#09090A"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="8" y1="4" x2="58" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF9650" stop-opacity="0.7"/>
+      <stop offset="42%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#F95C19" stop-opacity="0.32"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="52%">
+      <stop offset="0%" stop-color="#F95C19" stop-opacity="0.38"/>
+      <stop offset="55%" stop-color="#F95C19" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#F95C19" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="arc" x1="16" y1="12" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="58%" stop-color="#ECE5DF"/>
+      <stop offset="100%" stop-color="#BDB3AA"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="10" y1="44" x2="54" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFB066"/>
+      <stop offset="50%" stop-color="#F95C19"/>
+      <stop offset="100%" stop-color="#D84308"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFF0DC"/>
+      <stop offset="48%" stop-color="#FF8838"/>
+      <stop offset="100%" stop-color="#F95C19"/>
+    </radialGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="14.25" stroke="url(#rim)" stroke-width="1.5"/>
+  <circle cx="32" cy="32" r="24" fill="url(#glow)"/>
+  <g transform="rotate(-28 32 32)">
+    <path d="M 8 32 A 24 8.2 0 0 1 56 32" stroke="url(#orbit)" stroke-width="2.1" stroke-linecap="round" opacity="0.45"/>
+  </g>
+  <path d="M 44.5 21.2 A 16.5 16.5 0 1 0 47.8 34.5 L 47.8 32.2 L 34.8 32.2" stroke="url(#arc)" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="rotate(-28 32 32)">
+    <path d="M 55.6 32.7 A 24 8.2 0 0 1 8.4 32.7" stroke="url(#orbit)" stroke-width="2.6" stroke-linecap="round"/>
+  </g>
+  <circle cx="32" cy="32" r="3.4" fill="url(#core)"/>
+  <path d="M 32 25.5 L 33.1 30.9 L 38.5 32 L 33.1 33.1 L 32 38.5 L 30.9 33.1 L 25.5 32 L 30.9 30.9 Z" fill="#FFF3E4" opacity="0.92"/>
+  <circle cx="48.5" cy="18.2" r="2.2" fill="#FF9852"/>
+  <circle cx="48.5" cy="18.2" r="4.2" fill="#F95C19" opacity="0.22"/>
+  <circle cx="15.2" cy="43.8" r="1.4" fill="#FFE2C8" opacity="0.85"/>
+</svg>
