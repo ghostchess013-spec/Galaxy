@@ -6,7 +6,11 @@
 # - Automatic timestamped backup of ~/nexora-bridge for 1-line rollback
 set -euo pipefail
 
+CONFIG_FILE="$HOME/.config/galaxy-update.conf"
 REPO_URL="${1:-${NEXORA_REPO_URL:-}}"
+if [ -z "$REPO_URL" ] && [ -f "$CONFIG_FILE" ]; then
+  REPO_URL="$(cat "$CONFIG_FILE" | tr -d '[:space:]')"
+fi
 SERVICE_FILE="/etc/systemd/system/nexora-bridge.service"
 SRC_DIR="$HOME/nexora-v3-src"
 
@@ -16,7 +20,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo "============================================================"
-echo "  NEXORA 3.0 — VPS 2 IN-PLACE UPGRADE (Port 9120)"
+echo "  GALAXY — VPS 2 IN-PLACE UPGRADE (Port 9120)"
 echo "============================================================"
 
 # 1. Read existing configuration from nexora-bridge.service if present
@@ -173,6 +177,40 @@ WantedBy=multi-user.target
 EOF
 fi
 
+# Install permanent `galaxy-update` command for 1-word future updates
+if [ -z "$REPO_URL" ] && [ -d "$SRC_DIR/.git" ]; then
+  REPO_URL="$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null || true)"
+fi
+if [ -n "$REPO_URL" ]; then
+  mkdir -p "$HOME/.config"
+  printf '%s\n' "$REPO_URL" > "$CONFIG_FILE"
+fi
+
+$SUDO tee /usr/local/bin/galaxy-update > /dev/null << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+CONFIG_FILE="$HOME/.config/galaxy-update.conf"
+SRC_DIR="$HOME/nexora-v3-src"
+REPO_URL="${1:-}"
+if [ -z "$REPO_URL" ] && [ -f "$CONFIG_FILE" ]; then
+  REPO_URL="$(cat "$CONFIG_FILE" | tr -d '[:space:]')"
+fi
+if [ -z "$REPO_URL" ]; then
+  echo "Usage: galaxy-update <GITHUB_REPO_URL>"
+  exit 1
+fi
+if [ -d "$SRC_DIR/.git" ]; then
+  git -C "$SRC_DIR" remote set-url origin "$REPO_URL" 2>/dev/null || true
+  git -C "$SRC_DIR" fetch --all --prune
+  git -C "$SRC_DIR" reset --hard origin/HEAD
+else
+  rm -rf "$SRC_DIR"
+  git clone --depth 1 "$REPO_URL" "$SRC_DIR"
+fi
+exec bash "$SRC_DIR/deploy/migrate-vps2.sh" "$REPO_URL"
+EOF
+$SUDO chmod +x /usr/local/bin/galaxy-update
+
 echo ""
 echo "[6/6] Merestart nexora-bridge.service & verifikasi..."
 $SUDO systemctl daemon-reload
@@ -184,9 +222,10 @@ TS_IP=$(tailscale ip -4 2>/dev/null | head -n1 || hostname -I | awk '{print $1}'
 
 echo ""
 echo "============================================================"
-echo "  UPGRADE NEXORA 3.0 SELESAI!"
-echo "  Health check : ${HEALTH_OUT:-GAGAL (cek: sudo journalctl -u nexora-bridge -n 30)}"
-echo "  Tunnel status: $($SUDO systemctl is-active nexora-tunnel.service 2>/dev/null || echo 'tidak terpasang')"
+echo "  UPGRADE GALAXY SELESAI!"
+echo "  Health check   : ${HEALTH_OUT:-GAGAL (cek: sudo journalctl -u nexora-bridge -n 30)}"
+echo "  Tunnel status  : $($SUDO systemctl is-active nexora-tunnel.service 2>/dev/null || echo 'tidak terpasang')"
+echo "  Perintah update: galaxy-update  (permanen untuk update berikutnya)"
 echo "============================================================"
 echo "  BUKA DASHBOARD BARU DI BROWSER (Token lama tetap dipakai):"
 echo "  http://${TS_IP}:${BRIDGE_PORT}/?token=${NEXORA_TOKEN}"

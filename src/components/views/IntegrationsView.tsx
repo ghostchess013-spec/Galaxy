@@ -246,6 +246,12 @@ export default function IntegrationsView({
           <pre className="font-mono text-xs text-emerald-300/95 whitespace-pre-wrap break-all leading-relaxed">
             {migrateCommand}
           </pre>
+          <p className="text-[11px] text-neutral-400 pt-1 border-t border-white/10">
+            Installs permanent command{' '}
+            <span className="font-mono text-emerald-300">galaxy-update</span> on VPS 2 — for all
+            future updates, push to GitHub and just run{' '}
+            <span className="font-mono text-white">galaxy-update</span>.
+          </p>
         </div>
       </section>
 
