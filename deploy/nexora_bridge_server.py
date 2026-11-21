@@ -7,6 +7,7 @@ Replaces the legacy single-file server.py on port 9120 while preserving:
 
 import asyncio
 import base64
+import hashlib
 import hmac
 import json
 import os
@@ -16,12 +17,13 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+from urllib.parse import urlparse
 
 import httpx
 import psutil
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -84,9 +86,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_build_allowed_origins(),
     allow_origin_regex=r"^https?://(100\.\d{1,3}\.\d{1,3}\.\d{1,3}|127\.0\.0\.1|localhost)(:\d+)?$",
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 active_tasks: Dict[str, Dict[str, Any]] = {}
@@ -120,24 +122,103 @@ def record_blackbox(
     return entry
 
 
+SESSION_COOKIE_NAME = "galaxy_session"
+SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+TAILSCALE_ORIGIN_RE = re.compile(
+    r"^https?://(100\.\d{1,3}\.\d{1,3}\.\d{1,3}|127\.0\.0\.1|localhost)(:\d+)?$"
+)
+
+
 def _token_matches(candidate: str) -> bool:
     if not NEXORA_TOKEN or not candidate:
         return False
     return hmac.compare_digest(candidate.encode("utf-8"), NEXORA_TOKEN.encode("utf-8"))
 
 
+def _expected_session_cookie() -> str:
+    if not NEXORA_TOKEN:
+        return ""
+    return hmac.new(
+        NEXORA_TOKEN.encode("utf-8"),
+        b"galaxy-bridge-session-v1",
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _cookie_matches(candidate: Optional[str]) -> bool:
+    expected = _expected_session_cookie()
+    if not expected or not candidate:
+        return False
+    return hmac.compare_digest(candidate.strip().encode("utf-8"), expected.encode("utf-8"))
+
+
+def _is_https_request(request: Request) -> bool:
+    xf_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return xf_proto == "https" or request.url.scheme == "https"
+
+
+def _set_session_cookie(response: Response, request: Request) -> None:
+    sig = _expected_session_cookie()
+    if not sig:
+        return
+    is_https = _is_https_request(request)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=sig,
+        max_age=SESSION_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=is_https,
+        path="/",
+    )
+
+
+def _is_trusted_origin(origin: Optional[str], host: Optional[str]) -> bool:
+    if not origin:
+        return True
+    if origin in _build_allowed_origins() or TAILSCALE_ORIGIN_RE.match(origin):
+        return True
+    if host:
+        try:
+            parsed = urlparse(origin)
+            if parsed.netloc and parsed.netloc.lower() == host.lower():
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _has_valid_request_auth(request: Request) -> bool:
+    auth_header = request.headers.get("authorization") or ""
+    if auth_header.startswith("Bearer ") and _token_matches(auth_header.split(" ", 1)[1].strip()):
+        return True
+    q_token = request.query_params.get("token") or ""
+    if _token_matches(q_token.strip()):
+        return True
+    return _cookie_matches(request.cookies.get(SESSION_COOKIE_NAME))
+
+
 def verify_token(
+    request: Request,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None),
 ) -> str:
-    raw = ""
     if authorization and authorization.startswith("Bearer "):
         raw = authorization.split(" ", 1)[1].strip()
-    elif token:
-        raw = token.strip()
-    if not _token_matches(raw):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return raw
+        if _token_matches(raw):
+            return raw
+    if token and _token_matches(token.strip()):
+        return token.strip()
+    cookie_val = request.cookies.get(SESSION_COOKIE_NAME)
+    if _cookie_matches(cookie_val):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            origin = request.headers.get("origin")
+            host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+            xrw = request.headers.get("x-requested-with", "").lower()
+            if not (xrw == "galaxy-ui" or (origin and _is_trusted_origin(origin, host))):
+                raise HTTPException(status_code=403, detail="Cross-site request blocked")
+        return "cookie-session"
+    raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def validate_agent_slug(agent_id: str, allow_default: bool = True) -> str:
@@ -498,9 +579,46 @@ class ShellReq(BaseModel):
     force: bool = False
 
 
+class SessionAuthReq(BaseModel):
+    token: Optional[str] = None
+
+
 @app.get("/api/health")
-async def health():
-    return {"ok": True, "version": "3.0.0", "main_vps": MAIN_VPS_IP, "time": utc_now()}
+async def health(request: Request):
+    return {
+        "ok": True,
+        "version": "3.0.0",
+        "main_vps": MAIN_VPS_IP,
+        "time": utc_now(),
+        "authenticated": _has_valid_request_auth(request),
+    }
+
+
+@app.post("/api/auth/session")
+async def create_auth_session(
+    request: Request,
+    req: Optional[SessionAuthReq] = None,
+    authorization: Optional[str] = Header(None),
+):
+    candidate = ""
+    if authorization and authorization.startswith("Bearer "):
+        candidate = authorization.split(" ", 1)[1].strip()
+    elif req and req.token:
+        candidate = req.token.strip()
+
+    if not (_token_matches(candidate) or _cookie_matches(request.cookies.get(SESSION_COOKIE_NAME))):
+        raise HTTPException(status_code=401, detail="Invalid NEXORA_TOKEN")
+
+    resp = JSONResponse({"ok": True, "authenticated": True})
+    _set_session_cookie(resp, request)
+    return resp
+
+
+@app.post("/api/auth/logout")
+async def clear_auth_session(request: Request, _=Depends(verify_token)):
+    resp = JSONResponse({"ok": True, "authenticated": False})
+    resp.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    return resp
 
 
 @app.get("/api/status", dependencies=[Depends(verify_token)])
@@ -1112,9 +1230,14 @@ async def kill_switch():
 
 @app.websocket("/ws")
 async def ws_telemetry(ws: WebSocket, token: str = Query("")):
-    if not _token_matches(token):
-        await ws.close(code=1008)
-        return
+    has_token = _token_matches(token)
+    has_cookie = _cookie_matches(ws.cookies.get(SESSION_COOKIE_NAME))
+    if not has_token:
+        origin = ws.headers.get("origin")
+        host = ws.headers.get("x-forwarded-host") or ws.headers.get("host")
+        if not (has_cookie and _is_trusted_origin(origin, host)):
+            await ws.close(code=1008)
+            return
     await ws.accept()
     ws_clients.add(ws)
     try:
@@ -1136,18 +1259,23 @@ if (DIST_DIR / "src" / "assets").is_dir():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def serve_root():
+async def serve_root(request: Request, token: Optional[str] = Query(None)):
     index_dist = DIST_DIR / "index.html"
     if index_dist.is_file():
-        return FileResponse(index_dist)
-    legacy = BASE_DIR / "index.html"
-    if legacy.is_file():
-        return HTMLResponse(legacy.read_text(encoding="utf-8"))
-    raise HTTPException(status_code=503, detail="NEXORA frontend bundle not built yet")
+        resp: Response = FileResponse(index_dist)
+    else:
+        legacy = BASE_DIR / "index.html"
+        if legacy.is_file():
+            resp = HTMLResponse(legacy.read_text(encoding="utf-8"))
+        else:
+            raise HTTPException(status_code=503, detail="NEXORA frontend bundle not built yet")
+    if token and _token_matches(token.strip()):
+        _set_session_cookie(resp, request)
+    return resp
 
 
 @app.get("/{full_path:path}")
-async def serve_spa_fallback(full_path: str):
+async def serve_spa_fallback(request: Request, full_path: str, token: Optional[str] = Query(None)):
     if full_path.startswith("api/") or full_path == "ws":
         raise HTTPException(status_code=404, detail="Not found")
     candidate = (DIST_DIR / full_path).resolve()
@@ -1155,7 +1283,10 @@ async def serve_spa_fallback(full_path: str):
         return FileResponse(candidate)
     index_dist = DIST_DIR / "index.html"
     if index_dist.is_file():
-        return FileResponse(index_dist)
+        resp: Response = FileResponse(index_dist)
+        if token and _token_matches(token.strip()):
+            _set_session_cookie(resp, request)
+        return resp
     raise HTTPException(status_code=404, detail="Not found")
 
 

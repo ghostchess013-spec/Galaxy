@@ -148,14 +148,18 @@ export default function IntegrationsView({
               htmlFor="bridge-token-input"
               className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1.5"
             >
-              Session Bearer Token (Memory-only · auto-loaded from ?token=)
+              Session Token (Persisted securely via HttpOnly cookie across refreshes)
             </label>
             <input
               id="bridge-token-input"
               type="password"
               value={sessionToken}
               onChange={(e) => onUpdateSessionToken(e.target.value)}
-              placeholder="Paste NEXORA_TOKEN from nexora-bridge.service"
+              placeholder={
+                bridgeStatus === 'live' && !sessionToken
+                  ? 'Active via HttpOnly session cookie (paste new token only to rotate)'
+                  : 'Paste NEXORA_TOKEN from nexora-bridge.service'
+              }
               className="w-full rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3.5 py-2 font-mono text-xs text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
             />
           </div>

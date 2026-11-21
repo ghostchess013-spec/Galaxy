@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Building2,
@@ -80,6 +80,7 @@ import {
   buildTelemetryWebSocketUrl,
   createBridgeAgent,
   deleteBridgeAgent,
+  establishBridgeSession,
   fetchBridgeFiles,
   fetchBridgeStatus,
   mergeBridgeTelemetry,
@@ -193,10 +194,23 @@ export default function App() {
   const [clockText, setClockText] = useState('');
 
   const [sessionToken, setSessionToken] = useState<string>(() => parseAndScrubUrlToken());
+  const [bridgeCookieAuth, setBridgeCookieAuth] = useState<boolean>(false);
+  const [bridgeAuthChecked, setBridgeAuthChecked] = useState<boolean>(false);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeConnectionStatus>('demo');
   const [bridgeError, setBridgeError] = useState<string>('');
   const [liveTelemetry, setLiveTelemetry] = useState<BridgeTelemetry | null>(null);
   const [sendingChatAgentId, setSendingChatAgentId] = useState<string | null>(null);
+  const chatRevertTimersRef = useRef<Record<string, number>>({});
+  const chatPrevStateRef = useRef<Record<string, { status: AgentStatus; currentTask: string }>>({});
+
+  const hasBridgeAuth = Boolean(sessionToken || bridgeCookieAuth);
+
+  useEffect(() => {
+    const timers = chatRevertTimersRef.current;
+    return () => {
+      Object.values(timers).forEach((t) => window.clearTimeout(t));
+    };
+  }, []);
 
   const [locked, setLocked] = useState<boolean>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -206,24 +220,47 @@ export default function App() {
   const [pinEntry, setPinEntry] = useState('');
   const [pinError, setPinError] = useState('');
 
-  // Auto-detect when served directly from VPS 2 nexora-bridge (:9120)
+  // Auto-detect VPS 2 nexora-bridge (:9120) & restore HttpOnly session cookie across refreshes
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const health = await probeBridgeHealth('', 2000);
+      const targetUrl = settings.bridgeMode === 'live' ? settings.bridgeUrl : '';
+      const health = await probeBridgeHealth(targetUrl, 2500);
       if (cancelled) return;
       if (health.ok) {
-        setSettings((prev) => ({
-          ...prev,
-          bridgeMode: 'live',
-          bridgeUrl: '',
-        }));
+        if (!targetUrl) {
+          setSettings((prev) => ({
+            ...prev,
+            bridgeMode: 'live',
+            bridgeUrl: '',
+          }));
+        }
+        if (health.authenticated) {
+          setBridgeCookieAuth(true);
+        }
       }
+      setBridgeAuthChecked(true);
     })();
     return () => {
       cancelled = true;
     };
+    // Run once on initial mount to probe same-origin / saved bridge health & cookie session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Exchange in-memory sessionToken for a persistent 30-day HttpOnly cookie on the bridge server
+  useEffect(() => {
+    if (settings.bridgeMode !== 'live' || !sessionToken) return;
+    let cancelled = false;
+    void establishBridgeSession(settings.bridgeUrl, sessionToken).then((res) => {
+      if (!cancelled && res.ok && res.authenticated) {
+        setBridgeCookieAuth(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.bridgeMode, settings.bridgeUrl, sessionToken]);
 
   // Maintain live WebSocket telemetry stream when in Live Bridge mode
   useEffect(() => {
@@ -234,7 +271,12 @@ export default function App() {
       return;
     }
 
-    if (!sessionToken) {
+    if (!hasBridgeAuth) {
+      if (!bridgeAuthChecked) {
+        setBridgeStatus('connecting');
+        setBridgeError('');
+        return;
+      }
       setBridgeStatus('error');
       setBridgeError('Enter your NEXORA_TOKEN in Integrations or open via ?token= link.');
       return;
@@ -311,6 +353,7 @@ export default function App() {
         ws.onclose = (ev) => {
           if (disposed) return;
           if (ev.code === 1008) {
+            setBridgeCookieAuth(false);
             setBridgeStatus('error');
             setBridgeError('Invalid NEXORA_TOKEN (401). Update your session token in Integrations.');
             return;
@@ -331,7 +374,14 @@ export default function App() {
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       ws?.close();
     };
-  }, [settings.bridgeMode, settings.bridgeUrl, settings.showOnlyVpsAgents, sessionToken]);
+  }, [
+    settings.bridgeMode,
+    settings.bridgeUrl,
+    settings.showOnlyVpsAgents,
+    sessionToken,
+    hasBridgeAuth,
+    bridgeAuthChecked,
+  ]);
 
   // Sync theme attribute on documentElement
   useEffect(() => {
@@ -516,7 +566,7 @@ export default function App() {
       `Constructed ${hired.buildingName} and onboarded ${hired.name} (${hired.role}).`,
     );
 
-    if (bridgeStatus === 'live' && sessionToken) {
+    if (bridgeStatus === 'live' && hasBridgeAuth) {
       void createBridgeAgent(settings.bridgeUrl, sessionToken, {
         slug: hired.profileKey,
         role: hired.role,
@@ -544,7 +594,7 @@ export default function App() {
       `Provisioned custom Hermes profile ~/.hermes/profiles/${hired.profileKey} (${hired.buildingName}).`,
     );
 
-    if (bridgeStatus === 'live' && sessionToken) {
+    if (bridgeStatus === 'live' && hasBridgeAuth) {
       void createBridgeAgent(settings.bridgeUrl, sessionToken, {
         slug: hired.profileKey,
         role: hired.role,
@@ -562,7 +612,7 @@ export default function App() {
   const handleUpdateAgentAvatar = (agentId: string, avatarUrl: string) => {
     const target = agents.find((a) => a.id === agentId);
     setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, avatarUrl } : a)));
-    if (target && bridgeStatus === 'live' && sessionToken) {
+    if (target && bridgeStatus === 'live' && hasBridgeAuth) {
       const slug = target.isHQ ? 'default' : target.profileKey;
       void updateBridgeAgentAvatar(settings.bridgeUrl, sessionToken, slug, avatarUrl).catch(
         () => {},
@@ -585,7 +635,7 @@ export default function App() {
         );
         if (
           bridgeStatus === 'live' &&
-          sessionToken &&
+          hasBridgeAuth &&
           target.profileKey !== 'default' &&
           target.profileKey !== 'vps-guardian'
         ) {
@@ -597,17 +647,64 @@ export default function App() {
 
   const handleSendChatMessage = (agentId: string, content: string, attachmentName?: string) => {
     const agent = agents.find((a) => a.id === agentId) ?? agents[0];
+    const trimmed = content.trim();
+    if (!trimmed) return;
     const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const operatorMsg: ChatMessage = {
       id: `cm-u-${Date.now()}`,
       agentId: agent.id,
       sender: 'operator',
-      content: content.trim(),
+      content: trimmed,
       timestamp: ts,
       attachmentName,
     };
 
-    if (bridgeStatus === 'live' && sessionToken) {
+    const promptPreview = trimmed.length > 42 ? `${trimmed.slice(0, 42)}…` : trimmed;
+
+    // Remember original status so idle agents walk to their Floor 1 desk to work while replying,
+    // then naturally return to relaxing/hanging out after finishing the conversation.
+    if (!chatPrevStateRef.current[agent.id]) {
+      chatPrevStateRef.current[agent.id] = {
+        status: agent.status,
+        currentTask: agent.currentTask,
+      };
+    }
+    if (chatRevertTimersRef.current[agent.id]) {
+      window.clearTimeout(chatRevertTimersRef.current[agent.id]);
+      delete chatRevertTimersRef.current[agent.id];
+    }
+
+    const markAgentWorking = (taskText: string) => {
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agent.id ? { ...a, status: 'working', currentTask: taskText } : a,
+        ),
+      );
+    };
+
+    const scheduleIdleReturn = (delayMs: number) => {
+      const prevSnapshot = chatPrevStateRef.current[agent.id];
+      chatRevertTimersRef.current[agent.id] = window.setTimeout(() => {
+        delete chatRevertTimersRef.current[agent.id];
+        delete chatPrevStateRef.current[agent.id];
+        if (!prevSnapshot) return;
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === agent.id
+              ? {
+                  ...a,
+                  status: prevSnapshot.status,
+                  currentTask: prevSnapshot.currentTask,
+                }
+              : a,
+          ),
+        );
+      }, delayMs);
+    };
+
+    markAgentWorking(`Memproses chat: "${promptPreview}"`);
+
+    if (bridgeStatus === 'live' && hasBridgeAuth) {
       const priorHistory = (chats[agent.id] ?? [])
         .filter((m) => !m.content.startsWith('Live bridge error:'))
         .slice(-10)
@@ -622,7 +719,7 @@ export default function App() {
       setSendingChatAgentId(agent.id);
       void sendBridgeChat(settings.bridgeUrl, sessionToken, {
         agent_id: agent.isHQ ? 'default' : agent.profileKey,
-        message: content.trim(),
+        message: trimmed,
         model: agent.model || 'combo-best',
         history: priorHistory,
       })
@@ -641,6 +738,7 @@ export default function App() {
             ...prev,
             [agent.id]: [...(prev[agent.id] ?? []), agentMsg],
           }));
+          markAgentWorking(`Selesai menjawab: "${promptPreview}"`);
         })
         .catch((err) => {
           const errMsg: ChatMessage = {
@@ -657,34 +755,51 @@ export default function App() {
         })
         .finally(() => {
           setSendingChatAgentId((cur) => (cur === agent.id ? null : cur));
+          scheduleIdleReturn(14000);
         });
       return;
     }
 
-    const reply = generateAgentReply(agent, content, agents);
-    const agentMsg: ChatMessage = {
-      id: `cm-a-${Date.now() + 1}`,
-      agentId: agent.id,
-      sender: 'agent',
-      content: reply.text,
-      timestamp: ts,
-      modelUsed: agent.model,
-      latencyMs: 920 + Math.round(agent.avgReplySec * 140),
-      toolTrace: reply.toolTrace,
-    };
-
+    // Demo Preview mode: show operator message immediately and animate agent typing at desk briefly
     setChats((prev) => ({
       ...prev,
-      [agent.id]: [...(prev[agent.id] ?? []), operatorMsg, agentMsg],
+      [agent.id]: [...(prev[agent.id] ?? []), operatorMsg],
     }));
+    setSendingChatAgentId(agent.id);
 
-    setAgents((prev) =>
-      prev.map((a) =>
-        a.id === agent.id
-          ? { ...a, sessionsCount: a.sessionsCount + 1, tokensUsed: a.tokensUsed + 1480 }
-          : a,
-      ),
-    );
+    window.setTimeout(() => {
+      const reply = generateAgentReply(agent, trimmed, agents);
+      const agentMsg: ChatMessage = {
+        id: `cm-a-${Date.now() + 1}`,
+        agentId: agent.id,
+        sender: 'agent',
+        content: reply.text,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        modelUsed: agent.model,
+        latencyMs: 920 + Math.round(agent.avgReplySec * 140),
+        toolTrace: reply.toolTrace,
+      };
+
+      setChats((prev) => ({
+        ...prev,
+        [agent.id]: [...(prev[agent.id] ?? []), agentMsg],
+      }));
+      setSendingChatAgentId((cur) => (cur === agent.id ? null : cur));
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agent.id
+            ? {
+                ...a,
+                status: 'working',
+                currentTask: `Selesai menjawab: "${promptPreview}"`,
+                sessionsCount: a.sessionsCount + 1,
+                tokensUsed: a.tokensUsed + 1480,
+              }
+            : a,
+        ),
+      );
+      scheduleIdleReturn(14000);
+    }, 850);
   };
 
   const handleOpenChat = (agentId: string) => {
@@ -693,7 +808,7 @@ export default function App() {
   };
 
   const handleRunDiagnostics = () => {
-    if (bridgeStatus === 'live' && sessionToken) {
+    if (bridgeStatus === 'live' && hasBridgeAuth) {
       void fetchBridgeStatus(settings.bridgeUrl, sessionToken)
         .then((snap) => {
           setLiveTelemetry(snap);
@@ -734,7 +849,14 @@ export default function App() {
       setBridgeStatus('error');
       return `Could not reach /api/health at ${settings.bridgeUrl || 'same-origin'}. Ensure Tailscale is active and nexora-bridge is running on port 9120.`;
     }
-    if (!sessionToken) {
+    if (sessionToken) {
+      const sess = await establishBridgeSession(settings.bridgeUrl, sessionToken);
+      if (sess.ok && sess.authenticated) {
+        setBridgeCookieAuth(true);
+      }
+    } else if (health.authenticated) {
+      setBridgeCookieAuth(true);
+    } else {
       return `Bridge v${health.version ?? '3.0'} online (${health.main_vps}), but Session Bearer Token is empty.`;
     }
     try {
@@ -759,7 +881,7 @@ export default function App() {
   };
 
   const handleSyncLiveFiles = async () => {
-    if (bridgeStatus !== 'live' || !sessionToken) return;
+    if (bridgeStatus !== 'live' || !hasBridgeAuth) return;
     const res = await fetchBridgeFiles(settings.bridgeUrl, sessionToken);
     if (res.ok && res.files.length > 0) {
       setFiles(res.files);
@@ -769,7 +891,7 @@ export default function App() {
 
   const handleSaveFile = async (id: string, content: string) => {
     const target = files.find((f) => f.id === id);
-    if (bridgeStatus === 'live' && sessionToken && target) {
+    if (bridgeStatus === 'live' && hasBridgeAuth && target) {
       await saveBridgeFile(settings.bridgeUrl, sessionToken, target.path, content);
     }
     setFiles((prev) =>
@@ -778,7 +900,7 @@ export default function App() {
   };
 
   const handleRestartService = async (unit: string) => {
-    if (bridgeStatus !== 'live' || !sessionToken) return;
+    if (bridgeStatus !== 'live' || !hasBridgeAuth) return;
     await restartBridgeService(settings.bridgeUrl, sessionToken, unit);
     handleRunDiagnostics();
   };
@@ -1187,12 +1309,21 @@ export default function App() {
               agents={agents}
               selectedAgentId={selectedAgentId}
               theme={settings.theme}
+              chats={chats}
+              sendingAgentId={sendingChatAgentId}
               onSelectAgent={setSelectedAgentId}
               onUpdateStatus={handleUpdateAgentStatus}
               onUpdateAvatar={handleUpdateAgentAvatar}
               onOpenAddAgent={() => setAddAgentOpen(true)}
               onRetireSpecialist={handleRetireSpecialist}
               onOpenChat={handleOpenChat}
+              onSendMessage={handleSendChatMessage}
+              onClearThread={(id) =>
+                setChats((prev) => ({
+                  ...prev,
+                  [id]: [],
+                }))
+              }
               onOpenAsk={() => setAskOpen(true)}
             />
           )}
@@ -1339,12 +1470,12 @@ export default function App() {
               agents={agents}
               bridgeStatus={bridgeStatus}
               onExecuteLiveShell={
-                bridgeStatus === 'live' && sessionToken
+                bridgeStatus === 'live' && hasBridgeAuth
                   ? (cmd) => runBridgeShell(settings.bridgeUrl, sessionToken, cmd)
                   : undefined
               }
               onResolveLiveApproval={
-                bridgeStatus === 'live' && sessionToken
+                bridgeStatus === 'live' && hasBridgeAuth
                   ? (approvalId, decision) =>
                       resolveBridgeApproval(settings.bridgeUrl, sessionToken, approvalId, decision)
                   : undefined

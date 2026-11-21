@@ -50,13 +50,20 @@ export function normalizeBridgeBaseUrl(rawUrl: string): string {
 export async function probeBridgeHealth(
   baseUrl: string,
   timeoutMs = 2500,
-): Promise<{ ok: boolean; version?: string; main_vps?: string; time?: string }> {
+): Promise<{
+  ok: boolean;
+  authenticated?: boolean;
+  version?: string;
+  main_vps?: string;
+  time?: string;
+}> {
   const controller = new AbortController();
   const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const prefix = normalizeBridgeBaseUrl(baseUrl);
     const res = await fetch(`${prefix}/api/health`, {
       method: 'GET',
+      credentials: 'include',
       signal: controller.signal,
     });
     if (!res.ok) return { ok: false };
@@ -64,12 +71,14 @@ export async function probeBridgeHealth(
     if (!ct.includes('application/json')) return { ok: false };
     const data = (await res.json()) as {
       ok?: boolean;
+      authenticated?: boolean;
       version?: string;
       main_vps?: string;
       time?: string;
     };
     return {
       ok: Boolean(data.ok && data.main_vps),
+      authenticated: Boolean(data.authenticated),
       version: data.version,
       main_vps: data.main_vps,
       time: data.time,
@@ -78,6 +87,31 @@ export async function probeBridgeHealth(
     return { ok: false };
   } finally {
     globalThis.clearTimeout(timer);
+  }
+}
+
+export async function establishBridgeSession(
+  baseUrl: string,
+  token: string,
+): Promise<{ ok: boolean; authenticated: boolean }> {
+  if (!token.trim()) return { ok: false, authenticated: false };
+  try {
+    const prefix = normalizeBridgeBaseUrl(baseUrl);
+    const res = await fetch(`${prefix}/api/auth/session`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'galaxy-ui',
+        Authorization: `Bearer ${token.trim()}`,
+      },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) return { ok: false, authenticated: false };
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; authenticated?: boolean };
+    return { ok: Boolean(data.ok), authenticated: Boolean(data.authenticated) };
+  } catch {
+    return { ok: false, authenticated: false };
   }
 }
 
@@ -93,12 +127,14 @@ async function bridgeJson<T>(
     const prefix = normalizeBridgeBaseUrl(baseUrl);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'X-Requested-With': 'galaxy-ui',
     };
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
     const res = await fetch(`${prefix}${path}`, {
       method: options.method ?? 'GET',
+      credentials: 'include',
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: controller.signal,
@@ -152,8 +188,10 @@ export async function speakViaBridge(
   const prefix = normalizeBridgeBaseUrl(baseUrl);
   const res = await fetch(`${prefix}/api/voice/speak`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      'X-Requested-With': 'galaxy-ui',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(payload),
@@ -277,7 +315,8 @@ export function buildTelemetryWebSocketUrl(baseUrl: string, token: string): stri
   } else {
     wsBase = prefix.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
   }
-  return `${wsBase}/ws?token=${encodeURIComponent(token)}`;
+  const cleanToken = token.trim();
+  return cleanToken ? `${wsBase}/ws?token=${encodeURIComponent(cleanToken)}` : `${wsBase}/ws`;
 }
 
 function mapRemoteStatus(remoteStatus: 'IDLE' | 'EXECUTING' | 'ALERT'): AgentStatus {
