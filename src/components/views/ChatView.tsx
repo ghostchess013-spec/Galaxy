@@ -37,9 +37,9 @@ export default function ChatView({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 h-[calc(100vh-5.5rem)] min-h-[600px]">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:h-[calc(100vh-5.5rem)] lg:min-h-[600px]">
       {/* Left Agent Thread Selector */}
-      <aside className="lg:col-span-4 xl:col-span-3 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden">
+      <aside className="lg:col-span-4 xl:col-span-3 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden max-h-[280px] lg:max-h-none">
         <div className="px-4 py-4 border-b border-[var(--nx-border)]">
           <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
             GALAXY / Chat
@@ -97,7 +97,7 @@ export default function ChatView({
       </aside>
 
       {/* Active Conversation Stream */}
-      <section className="lg:col-span-8 xl:col-span-9 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden">
+      <section className="lg:col-span-8 xl:col-span-9 rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden min-h-[520px] lg:min-h-0">
         <div className="px-5 py-3.5 border-b border-[var(--nx-border)] flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <img

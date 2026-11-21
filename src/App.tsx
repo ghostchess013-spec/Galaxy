@@ -607,6 +607,13 @@ export default function App() {
     };
 
     if (bridgeStatus === 'live' && sessionToken) {
+      const priorHistory = (chats[agent.id] ?? [])
+        .filter((m) => !m.content.startsWith('Live bridge error:'))
+        .slice(-10)
+        .map((m) => ({
+          role: (m.sender === 'operator' ? 'user' : 'assistant') as 'user' | 'assistant',
+          content: m.content,
+        }));
       setChats((prev) => ({
         ...prev,
         [agent.id]: [...(prev[agent.id] ?? []), operatorMsg],
@@ -615,7 +622,8 @@ export default function App() {
       void sendBridgeChat(settings.bridgeUrl, sessionToken, {
         agent_id: agent.isHQ ? 'default' : agent.profileKey,
         message: content.trim(),
-        model: 'combo-best',
+        model: agent.model || 'combo-best',
+        history: priorHistory,
       })
         .then((res) => {
           const agentMsg: ChatMessage = {
@@ -778,7 +786,7 @@ export default function App() {
     const chatRes = await sendBridgeChat(settings.bridgeUrl, sessionToken, {
       agent_id: agent.isHQ ? 'default' : agent.profileKey,
       message: promptText,
-      model: 'combo-best',
+      model: agent.model || 'combo-best',
     });
     let audioBlob: Blob | undefined;
     if (settings.autoSpeakReplies) {

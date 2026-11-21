@@ -93,6 +93,9 @@ active_tasks: Dict[str, Dict[str, Any]] = {}
 blackbox_logs: List[Dict[str, Any]] = []
 pending_approvals: Dict[str, Dict[str, Any]] = {}
 ws_clients: Set[WebSocket] = set()
+_chat_ctx_cache: Dict[str, Dict[str, Any]] = {}
+_preferred_router_key: str = ""
+CHAT_CTX_TTL_SEC = 180.0
 
 
 def utc_now() -> str:
@@ -471,10 +474,16 @@ class SaveFileReq(BaseModel):
     content: str
 
 
+class ChatHistoryItem(BaseModel):
+    role: str
+    content: str
+
+
 class ChatReq(BaseModel):
     agent_id: str = "default"
     message: str
     model: Optional[str] = None
+    history: Optional[List[ChatHistoryItem]] = None
 
 
 class VoiceReq(BaseModel):
@@ -660,32 +669,342 @@ async def save_workspace_file(req: SaveFileReq):
     return {"ok": True, "path": f"~/.hermes/{rel}"}
 
 
+def _parse_local_env_keys() -> List[str]:
+    candidates: List[str] = []
+    env_names = (
+        "NINE_ROUTER_API_KEY",
+        "ROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "CUSTOM_API_KEY",
+        "HERMES_API_KEY",
+        "LLM_API_KEY",
+        "API_KEY",
+    )
+    for name in env_names:
+        val = os.getenv(name, "").strip().strip('"').strip("'")
+        if val and not val.startswith("${"):
+            candidates.append(val)
+
+    local_env = BASE_DIR / ".env"
+    if local_env.is_file():
+        try:
+            for line in local_env.read_text(encoding="utf-8", errors="replace").splitlines():
+                s = line.strip()
+                if not s or s.startswith("#") or "=" not in s:
+                    continue
+                k, v = s.split("=", 1)
+                k = k.strip().removeprefix("export ").strip()
+                v = v.strip().strip('"').strip("'")
+                if k in env_names and v and not v.startswith("${"):
+                    candidates.append(v)
+        except Exception:
+            pass
+    return list(dict.fromkeys(candidates))
+
+
+async def _discover_chat_context(agent_id: str, force_refresh: bool = False) -> Dict[str, Any]:
+    now = time.time()
+    cached = _chat_ctx_cache.get(agent_id)
+    if not force_refresh and cached and (now - cached.get("ts", 0.0)) < CHAT_CTX_TTL_SEC:
+        return cached
+
+    local_keys = _parse_local_env_keys()
+    remote_script_tpl = r"""
+import glob, json, os, re, sqlite3, subprocess
+from pathlib import Path
+
+slug = __SLUG__
+home = Path.home()
+h_home = home / '.hermes'
+p_dir = h_home if slug == 'default' else (h_home / 'profiles' / slug)
+
+soul = ''
+for sp in [p_dir / 'SOUL.md', h_home / 'SOUL.md']:
+    if sp.is_file():
+        soul = sp.read_text(encoding='utf-8', errors='replace')[:4000]
+        break
+
+env_map = {}
+keys = []
+key_names = (
+    'NINE_ROUTER_API_KEY', 'ROUTER_API_KEY', 'OPENAI_API_KEY',
+    'CUSTOM_API_KEY', 'HERMES_API_KEY', 'LLM_API_KEY',
+    'API_KEY', 'OPENROUTER_API_KEY', 'NOUS_API_KEY'
+)
+
+def add_key(v):
+    if not v or not isinstance(v, str):
+        return
+    c = v.strip().strip('"').strip("'")
+    if not c or len(c) < 4 or c.startswith('${') or c.lower() in ('none', 'null', 'changeme', 'your-api-key', 'your_api_key'):
+        return
+    if c not in keys:
+        keys.append(c)
+
+def parse_env_file(fp):
+    if not fp.is_file():
+        return
+    try:
+        for line in fp.read_text(encoding='utf-8', errors='replace').splitlines():
+            s = line.strip()
+            if not s or s.startswith('#') or '=' not in s:
+                continue
+            k, v = s.split('=', 1)
+            k = k.strip()
+            if k.startswith('export '):
+                k = k[7:].strip()
+            v = v.strip().strip('"').strip("'")
+            if k:
+                env_map[k] = v
+                if k in key_names or (k.endswith('_API_KEY') and '9ROUTER' in k.upper()):
+                    add_key(v)
+    except Exception:
+        pass
+
+for ef in [p_dir / '.env', h_home / '.env', home / '.9router' / '.env', home / '9router' / '.env']:
+    parse_env_file(ef)
+
+def resolve_val(raw):
+    m = re.match(r'^\$\{?([A-Za-z0-9_]+)\}?$', raw.strip())
+    if m:
+        return env_map.get(m.group(1), '')
+    return raw
+
+yaml_key_re = re.compile(r'(?:api_key|openai_api_key|custom_api_key|router_api_key)\s*:\s*["\']?([^\s#"\']+)["\']?', re.I)
+for cf in [p_dir / 'config.yaml', h_home / 'config.yaml']:
+    if not cf.is_file():
+        continue
+    try:
+        txt = cf.read_text(encoding='utf-8', errors='replace')
+        for m in yaml_key_re.finditer(txt):
+            add_key(resolve_val(m.group(1)))
+    except Exception:
+        pass
+
+for jf in [p_dir / 'auth.json', h_home / 'auth.json', h_home / 'credentials.json']:
+    if not jf.is_file():
+        continue
+    try:
+        obj = json.loads(jf.read_text(encoding='utf-8', errors='replace'))
+        stack = [obj]
+        while stack:
+            cur = stack.pop()
+            if isinstance(cur, dict):
+                for k, v in cur.items():
+                    if isinstance(v, str) and ('key' in k.lower() or 'token' in k.lower()):
+                        add_key(v)
+                    elif isinstance(v, (dict, list)):
+                        stack.append(v)
+            elif isinstance(cur, list):
+                stack.extend(cur)
+    except Exception:
+        pass
+
+json_candidates = [
+    home / '.9router' / 'db.json',
+    home / '9router' / 'db.json',
+    home / '9router' / 'data' / 'db.json',
+    home / '.config' / '9router' / 'db.json',
+    home / '.local' / 'share' / '9router' / 'db.json',
+    Path('/opt/9router/db.json'),
+    Path('/var/lib/9router/db.json'),
+]
+for pat in [str(home / '*9router*' / 'db.json'), str(home / '*9router*' / '*' / 'db.json')]:
+    for found in glob.glob(pat):
+        p = Path(found)
+        if p not in json_candidates:
+            json_candidates.append(p)
+
+for dbp in json_candidates:
+    if not dbp.is_file():
+        continue
+    try:
+        data = json.loads(dbp.read_text(encoding='utf-8', errors='replace'))
+        if isinstance(data, dict):
+            for item in data.get('apiKeys', []) or []:
+                if isinstance(item, dict):
+                    add_key(item.get('key') or item.get('apiKey') or item.get('value'))
+                elif isinstance(item, str):
+                    add_key(item)
+            for k in ('apiKey', 'api_key', 'masterKey', 'secretKey'):
+                add_key(data.get(k))
+    except Exception:
+        pass
+
+sqlite_candidates = [
+    home / '.9router' / 'storage.sqlite',
+    home / '.9router' / 'db.sqlite',
+    home / '.9router' / '9router.db',
+    home / '9router' / 'storage.sqlite',
+    home / '9router' / 'data' / 'storage.sqlite',
+]
+for sp in sqlite_candidates:
+    if not sp.is_file():
+        continue
+    try:
+        conn = sqlite3.connect(f'file:{sp}?mode=ro', uri=True)
+        cur = conn.cursor()
+        tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        for t in tables:
+            tl = t.lower()
+            if 'key' in tl:
+                cols = [r[1] for r in cur.execute(f'PRAGMA table_info("{t}")').fetchall()]
+                for col in cols:
+                    if col.lower() in ('key', 'api_key', 'apikey', 'token', 'value'):
+                        for row in cur.execute(f'SELECT "{col}" FROM "{t}" LIMIT 10').fetchall():
+                            add_key(row[0])
+        conn.close()
+    except Exception:
+        pass
+
+try:
+    out = subprocess.check_output(['systemctl', '--user', 'show-environment'], stderr=subprocess.DEVNULL, timeout=2).decode('utf-8', errors='replace')
+    for line in out.splitlines():
+        if '=' in line:
+            k, v = line.split('=', 1)
+            if k in key_names:
+                add_key(v)
+except Exception:
+    pass
+
+print(json.dumps({'keys': keys[:12], 'soul': soul}))
+"""
+    remote_script = remote_script_tpl.replace("__SLUG__", json.dumps(agent_id))
+    remote_keys: List[str] = []
+    soul = ""
+    res = await ssh_run_python(remote_script, timeout=8.0)
+    if res["ok"] and res["stdout"]:
+        try:
+            parsed = json.loads(res["stdout"])
+            remote_keys = [str(k) for k in parsed.get("keys", []) if isinstance(k, str) and k.strip()]
+            soul = str(parsed.get("soul", "") or "")
+        except Exception:
+            pass
+
+    merged_keys: List[str] = []
+    if _preferred_router_key:
+        merged_keys.append(_preferred_router_key)
+    for k in local_keys + remote_keys + ["sk-9router-local"]:
+        if k and k not in merged_keys:
+            merged_keys.append(k)
+
+    ctx = {"ts": now, "keys": merged_keys, "soul": soul}
+    _chat_ctx_cache[agent_id] = ctx
+    return ctx
+
+
+def _extract_router_error(data: Any, status_code: int, raw_text: str) -> str:
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            msg = err.get("message") or err.get("detail") or err.get("code")
+            if msg:
+                return str(msg)
+        elif isinstance(err, str) and err:
+            return err
+        if data.get("detail"):
+            return str(data["detail"])
+    return f"HTTP {status_code}: {raw_text[:200]}"
+
+
+def _is_auth_error(status_code: int, data: Any) -> bool:
+    if status_code in (401, 403):
+        return True
+    if isinstance(data, dict) and isinstance(data.get("error"), dict):
+        err = data["error"]
+        etype = str(err.get("type", "")).lower()
+        ecode = str(err.get("code", "")).lower()
+        emsg = str(err.get("message", "")).lower()
+        if "auth" in etype or "api_key" in ecode or "api key" in emsg or "unauthorized" in emsg:
+            return True
+    return False
+
+
 @app.post("/api/chat", dependencies=[Depends(verify_token)])
 async def chat_agent(req: ChatReq):
+    global _preferred_router_key
     agent_id = validate_agent_slug(req.agent_id, allow_default=True)
     model = (req.model or "combo-best").strip() or "combo-best"
     active_tasks[agent_id] = {"task": f"9ROUTER: {model}", "started": time.time()}
     record_blackbox(agent_id, "9ROUTER", "INFERENCE", f"{model}: {req.message[:70]}")
     t0 = time.perf_counter()
+
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{UPSTREAM_ENDPOINTS['nine_router']}/v1/chat/completions",
-                json={
-                    "model": model,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": f"You are Hermes agent '{agent_id}' operating on hermesagent via NEXORA 3.0.",
-                        },
-                        {"role": "user", "content": req.message},
-                    ],
-                },
+        ctx = await _discover_chat_context(agent_id, force_refresh=False)
+        soul_block = ctx.get("soul", "").strip()
+        system_prompt = (
+            f"You are Hermes agent '{agent_id}' operating on hermesagent via GALAXY Operator System."
+        )
+        if soul_block:
+            system_prompt += f"\n\nProfile SOUL.md:\n{soul_block[:3000]}"
+
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        if req.history:
+            for item in req.history[-16:]:
+                role = "assistant" if item.role == "assistant" else "user"
+                content = (item.content or "").strip()
+                if content:
+                    messages.append({"role": role, "content": content[:4000]})
+        messages.append({"role": "user", "content": req.message})
+
+        async def _try_keys(candidate_keys: List[str]):
+            nonlocal model
+            last_err = "No valid 9Router API key found"
+            saw_auth_err = False
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                for api_key in candidate_keys:
+                    headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "x-api-key": api_key,
+                        "Content-Type": "application/json",
+                    }
+                    resp = await client.post(
+                        f"{UPSTREAM_ENDPOINTS['nine_router']}/v1/chat/completions",
+                        headers=headers,
+                        json={"model": model, "messages": messages},
+                    )
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = None
+
+                    if resp.status_code < 400 and isinstance(data, dict) and data.get("choices"):
+                        choice0 = data["choices"][0] if isinstance(data["choices"], list) and data["choices"] else {}
+                        msg_obj = choice0.get("message", {}) if isinstance(choice0, dict) else {}
+                        content = msg_obj.get("content")
+                        if content is not None:
+                            return True, str(content), str(data.get("model", model)), api_key, False
+
+                    err_msg = _extract_router_error(data, resp.status_code, resp.text)
+                    last_err = err_msg
+                    if _is_auth_error(resp.status_code, data):
+                        saw_auth_err = True
+                        continue
+                    # Non-auth upstream error (e.g. model quota/timeout) — stop retrying keys
+                    return False, err_msg, model, "", False
+
+            return False, last_err, model, "", saw_auth_err
+
+        ok, result_text, used_model, winning_key, saw_auth_err = await _try_keys(ctx.get("keys", []))
+
+        if not ok and saw_auth_err:
+            # Refresh key cache once in case API key was newly created or rotated in 9Router
+            _preferred_router_key = ""
+            fresh_ctx = await _discover_chat_context(agent_id, force_refresh=True)
+            ok, result_text, used_model, winning_key, _ = await _try_keys(fresh_ctx.get("keys", []))
+
+        if not ok:
+            record_blackbox(agent_id, "9ROUTER", "ERROR", result_text[:180], level="ERROR")
+            raise HTTPException(
+                status_code=502,
+                detail=f"9Router ({model}): {result_text}. Set NINE_ROUTER_API_KEY in nexora-bridge.service or ~/.hermes/.env if using a custom key.",
             )
-            data = resp.json()
-            reply = data.get("choices", [{}])[0].get("message", {}).get("content", json.dumps(data))
-            latency_ms = int((time.perf_counter() - t0) * 1000)
-            return {"ok": True, "reply": reply, "model": data.get("model", model), "latency_ms": latency_ms}
+
+        _preferred_router_key = winning_key
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        return {"ok": True, "reply": result_text, "model": used_model, "latency_ms": latency_ms}
+    except HTTPException:
+        raise
     except Exception as exc:
         record_blackbox(agent_id, "9ROUTER", "ERROR", str(exc), level="ERROR")
         raise HTTPException(status_code=502, detail=f"9Router error: {exc}")

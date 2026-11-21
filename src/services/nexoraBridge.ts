@@ -130,7 +130,12 @@ export async function fetchBridgeStatus(baseUrl: string, token: string): Promise
 export async function sendBridgeChat(
   baseUrl: string,
   token: string,
-  payload: { agent_id: string; message: string; model?: string },
+  payload: {
+    agent_id: string;
+    message: string;
+    model?: string;
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  },
 ): Promise<{ ok: boolean; reply: string; model: string; latency_ms?: number }> {
   return bridgeJson(baseUrl, token, '/api/chat', {
     method: 'POST',
