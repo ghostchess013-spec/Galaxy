@@ -47,7 +47,7 @@ export default function VoiceModeView({
       speaker: 'agent',
       agentName: agents[0]?.name ?? 'GALAXY',
       text: '',
-      engine: 'VoiceStudio :3900',
+      engine: 'Edge TTS',
       timestamp: '',
       isInit: true,
     },
@@ -58,16 +58,19 @@ export default function VoiceModeView({
   const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
   const activeDisp = activeAgent ? agentDisplay(activeAgent) : null;
 
-  const voiceEngines: Array<{
-    id: OperatorSettings['voiceEngine'];
+  const edgeVoices: Array<{
+    id: string;
     label: string;
     meta: string;
+    langTag: string;
   }> = [
-    { id: 'voicestudio', label: 'VoiceStudio :3900', meta: t('voiceEngineVoicestudioMeta') },
-    { id: 'piper', label: 'Piper', meta: t('voiceEnginePiperMeta') },
-    { id: 'kokoro', label: 'Kokoro v1', meta: t('voiceEngineKokoroMeta') },
-    { id: 'elevenlabs', label: 'ElevenLabs', meta: t('voiceEngineElevenlabsMeta') },
+    { id: 'id-ID-GadisNeural', label: 'Gadis Neural (ID)', meta: t('voiceEdgeGadisMeta'), langTag: 'id-ID' },
+    { id: 'id-ID-ArdiNeural', label: 'Ardi Neural (ID)', meta: t('voiceEdgeArdiMeta'), langTag: 'id-ID' },
+    { id: 'en-US-AriaNeural', label: 'Aria Neural (EN)', meta: t('voiceEdgeAriaMeta'), langTag: 'en-US' },
+    { id: 'en-US-GuyNeural', label: 'Guy Neural (EN)', meta: t('voiceEdgeGuyMeta'), langTag: 'en-US' },
   ];
+  const selectedVoiceId = settings.edgeVoiceId || 'id-ID-GadisNeural';
+  const selectedVoiceMeta = edgeVoices.find((v) => v.id === selectedVoiceId) ?? edgeVoices[0];
 
   const quickVoicePrompts = [
     t('voiceQuickPrompt1'),
@@ -121,9 +124,9 @@ export default function VoiceModeView({
     try {
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = lang === 'id' ? 'id-ID' : 'en-US';
-      utter.rate = settings.voiceEngine === 'piper' ? 1.08 : 0.98;
-      utter.pitch = activeAgent?.isHQ ? 0.92 : 1.02;
+      utter.lang = selectedVoiceMeta?.langTag ?? (lang === 'id' ? 'id-ID' : 'en-US');
+      utter.rate = 1.0;
+      utter.pitch = activeAgent?.isHQ ? 0.94 : 1.0;
       utter.onstart = () => setSpeaking(true);
       utter.onend = () => setSpeaking(false);
       utter.onerror = () => setSpeaking(false);
@@ -137,8 +140,7 @@ export default function VoiceModeView({
     const clean = promptText.trim();
     if (!clean || busy || !activeAgent) return;
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const defaultEngineLabel =
-      voiceEngines.find((v) => v.id === settings.voiceEngine)?.label ?? 'VoiceStudio :3900';
+    const defaultEngineLabel = `Edge TTS · ${selectedVoiceMeta.label}`;
 
     setTurns((prev) => [
       ...prev,
@@ -464,21 +466,23 @@ export default function VoiceModeView({
           </h2>
           <p className="text-xs text-[var(--nx-text-muted)] mt-1">{t('voiceSpeechDesc')}</p>
           <div className="mt-4 grid grid-cols-2 gap-2.5">
-            {voiceEngines.map((eng) => {
-              const active = settings.voiceEngine === eng.id;
+            {edgeVoices.map((voiceOpt) => {
+              const active = selectedVoiceId === voiceOpt.id;
               return (
                 <button
-                  key={eng.id}
+                  key={voiceOpt.id}
                   type="button"
-                  onClick={() => onUpdateSettings({ voiceEngine: eng.id })}
+                  onClick={() =>
+                    onUpdateSettings({ voiceEngine: 'edge-tts', edgeVoiceId: voiceOpt.id })
+                  }
                   className={`rounded-lg border p-3 text-left transition-colors cursor-pointer ${
                     active
                       ? 'border-[var(--nx-accent)] bg-[var(--nx-accent-soft)]'
                       : 'border-[var(--nx-border)] bg-[var(--nx-surface)] hover:border-[var(--nx-border-strong)]'
                   }`}
                 >
-                  <div className="text-xs font-semibold text-[var(--nx-text)]">{eng.label}</div>
-                  <div className="text-[11px] text-[var(--nx-text-muted)] mt-0.5">{eng.meta}</div>
+                  <div className="text-xs font-semibold text-[var(--nx-text)]">{voiceOpt.label}</div>
+                  <div className="text-[11px] text-[var(--nx-text-muted)] mt-0.5">{voiceOpt.meta}</div>
                 </button>
               );
             })}

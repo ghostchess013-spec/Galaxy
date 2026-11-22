@@ -451,7 +451,7 @@ export function evaluateTerminalCommand(
         '  hermes status          Show Hermes gateway & active daemon state',
         '  hermes fleet           List all active agent towers & statuses',
         '  tailscale status       Check encrypted mesh peers (100.72.221.36)',
-        '  ss -tulnp              Inspect listening Hermes, 9Router & VoiceStudio ports',
+        '  ss -tulnp              Inspect listening Hermes & 9Router ports',
         '  free -h / df -h        Check RAM and 200 GB NVMe storage utilization',
         '  uptime                 Show hermesagent uptime & load averages',
         '  ls ~/.hermes           Browse Hermes runtime directory',
@@ -470,7 +470,7 @@ export function evaluateTerminalCommand(
         '  Host:       hermesagent (100.72.221.36:9119)',
         `  Fleet:      ${agents.length} registered towers (${workingCount} working right now)`,
         '  9Router:    127.0.0.1:20128 [ONLINE]',
-        '  VoiceStudio:127.0.0.1:3900  [ONLINE · Kokoro/Piper]',
+        '  Edge TTS:   Microsoft Neural Voices [READY · ID/EN]',
         '  SQLite DBs: kanban.db (WAL), shared-state.db (OK)',
       ].join('\n'),
     };
@@ -500,7 +500,6 @@ export function evaluateTerminalCommand(
       output: [
         'tcp  LISTEN  0  2048  100.72.221.36:9119   0.0.0.0:*  users:(("hermes",pid=998))',
         'tcp  LISTEN  0  511   127.0.0.1:20128      0.0.0.0:*  users:(("next-server",pid=1217))',
-        'tcp  LISTEN  0  2048  127.0.0.1:3900       0.0.0.0:*  users:(("uvicorn",pid=24201))',
         'tcp  LISTEN  0  511   127.0.0.1:9377       0.0.0.0:*  users:(("node-MainThread",pid=10048))',
       ].join('\n'),
     };

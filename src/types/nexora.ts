@@ -198,7 +198,8 @@ export interface OperatorSettings {
   timezone: string;
   theme: ThemeId;
   language: LanguageId;
-  voiceEngine: 'voicestudio' | 'piper' | 'kokoro' | 'elevenlabs';
+  voiceEngine: 'edge-tts' | 'browser-tts';
+  edgeVoiceId: string;
   autoSpeakReplies: boolean;
   bridgeMode: 'demo' | 'live';
   bridgeUrl: string;

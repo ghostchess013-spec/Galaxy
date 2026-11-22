@@ -148,7 +148,7 @@ if [ ! -x "$INSTALL_DIR/.venv/bin/python" ]; then
   $SUDO apt-get install -y -qq python3 python3-venv python3-pip
   python3 -m venv "$INSTALL_DIR/.venv"
 fi
-"$INSTALL_DIR/.venv/bin/pip" install -q fastapi "uvicorn[standard]" psutil httpx pydantic
+"$INSTALL_DIR/.venv/bin/pip" install -q fastapi "uvicorn[standard]" psutil httpx pydantic edge-tts
 
 # Ensure systemd service exists (preserving token & tunnel if already present)
 if [ ! -f "$SERVICE_FILE" ]; then

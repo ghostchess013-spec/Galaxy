@@ -483,7 +483,7 @@ export const TRANSLATIONS = {
     voiceAudioOn: 'Spoken Audio On',
     voiceAudioMuted: 'Audio Muted',
     voiceStatusReady: 'Ready — tap Talk or type a spoken prompt.',
-    voiceStatusRouting: 'Routing through 9Router & VoiceStudio :3900 for {name}...',
+    voiceStatusRouting: 'Routing through 9Router & Edge TTS for {name}...',
     voiceStatusResponded: '{name} responded via {engine}.',
     voiceStatusLiveErr: 'Live voice error: {err}',
     voiceStatusMicStopped: 'Microphone stopped.',
@@ -494,7 +494,7 @@ export const TRANSLATIONS = {
     voiceStatusMicFailed: 'Could not start microphone — use the prompt bar below.',
     voiceStatusSwitched: 'Voice channel switched to {name} ({workstation}).',
     voiceInitGreeting:
-      'Voice link established on VoiceStudio :3900. All checks on hermesagent are monitored. Ready for your next move.',
+      'Voice link established on Edge TTS. All checks on hermesagent are monitored. Ready for your next move.',
     voiceInitTime: 'Now',
     voiceEngineMic: 'Mic / Transcript',
     voiceEngineBridgeErr: 'Bridge Error',
@@ -502,14 +502,14 @@ export const TRANSLATIONS = {
     voiceStopListening: 'Stop Listening',
     voiceTalkBtn: 'Talk',
     voiceSelectSpecialist: 'Select specialist on voice channel',
-    voiceSpeechTitlePrefix: 'Speech',
-    voiceSpeechTitleAccent: 'Engine.',
+    voiceSpeechTitlePrefix: 'Edge TTS',
+    voiceSpeechTitleAccent: 'Voices.',
     voiceSpeechDesc:
-      'Route spoken output through local VoiceStudio (:3900), Piper, Kokoro, or ElevenLabs.',
-    voiceEngineVoicestudioMeta: 'Local Uvicorn · ~180ms',
-    voiceEnginePiperMeta: 'Fast ARM64 CPU TTS',
-    voiceEngineKokoroMeta: 'Expressive Local Neural',
-    voiceEngineElevenlabsMeta: 'Cloud Studio Voice',
+      'Choose a Microsoft Edge TTS neural voice for spoken agent replies (Indonesian & English).',
+    voiceEdgeGadisMeta: 'Indonesian · Female Neural',
+    voiceEdgeArdiMeta: 'Indonesian · Male Neural',
+    voiceEdgeAriaMeta: 'English · Female Neural',
+    voiceEdgeGuyMeta: 'English · Male Neural',
     voiceTranscriptPrefix: 'Live',
     voiceTranscriptAccent: 'Transcript.',
     voiceQuickPrompt1: 'Give me a fleet and VPS health status update.',
@@ -772,7 +772,7 @@ export const TRANSLATIONS = {
     guideCh3Action: 'Open Missions',
     guideCh4Title: 'Voice Mode & Direct Chat',
     guideCh4Summary:
-      'Speak out loud to any specialist via Web Speech API + local VoiceStudio (:3900), Piper, Kokoro, or ElevenLabs, or maintain persistent threads in Chat.',
+      'Speak out loud to any specialist via Web Speech API + Microsoft Edge TTS neural voices (Indonesian & English), or maintain persistent threads in Chat.',
     guideCh4Bullet1:
       'Switch speakers seamlessly using the portrait carousel at the base of Voice Mode.',
     guideCh4Bullet2:
@@ -790,7 +790,7 @@ export const TRANSLATIONS = {
     guideCh6Summary:
       'Export this project to GitHub and run the included 1-command upgrade script on vm-23-58-ubuntu to replace the previous single-file dashboard in place.',
     guideCh6Bullet1:
-      'Automatically preserves your existing NEXORA_TOKEN, SSH key, and nexora-tunnel.service (ports 20128, 3900, 9377).',
+      'Automatically preserves your existing NEXORA_TOKEN, SSH key, and nexora-tunnel.service (ports 20128, 9377) while installing Edge TTS.',
     guideCh6Bullet2:
       'Creates a timestamped backup folder (~/nexora-bridge.bak-*) before switching port 9120 to GALAXY.',
     guideCh6Bullet3:
@@ -1181,7 +1181,7 @@ export const TRANSLATIONS = {
     voiceAudioOn: 'Suara Aktif',
     voiceAudioMuted: 'Suara Dibisukan',
     voiceStatusReady: 'Siap — ketuk Bicara atau ketik perintah suara.',
-    voiceStatusRouting: 'Meneruskan lewat 9Router & VoiceStudio :3900 untuk {name}...',
+    voiceStatusRouting: 'Meneruskan lewat 9Router & Edge TTS untuk {name}...',
     voiceStatusResponded: '{name} merespons melalui {engine}.',
     voiceStatusLiveErr: 'Galat suara langsung: {err}',
     voiceStatusMicStopped: 'Mikrofon dihentikan.',
@@ -1192,7 +1192,7 @@ export const TRANSLATIONS = {
     voiceStatusMicFailed: 'Tidak dapat memulai mikrofon — gunakan kolom ketik di bawah.',
     voiceStatusSwitched: 'Saluran suara dialihkan ke {name} ({workstation}).',
     voiceInitGreeting:
-      'Tautan suara terhubung melalui VoiceStudio :3900. Seluruh pemeriksaan pada hermesagent terpantau aman. Siap menerima arahan Anda.',
+      'Tautan suara terhubung melalui Edge TTS. Seluruh pemeriksaan pada hermesagent terpantau aman. Siap menerima arahan Anda.',
     voiceInitTime: 'Sekarang',
     voiceEngineMic: 'Mikrofon / Transkrip',
     voiceEngineBridgeErr: 'Galat Jembatan',
@@ -1200,14 +1200,14 @@ export const TRANSLATIONS = {
     voiceStopListening: 'Berhenti Mendengar',
     voiceTalkBtn: 'Bicara',
     voiceSelectSpecialist: 'Pilih spesialis pada saluran suara',
-    voiceSpeechTitlePrefix: 'Mesin',
-    voiceSpeechTitleAccent: 'Suara.',
+    voiceSpeechTitlePrefix: 'Suara',
+    voiceSpeechTitleAccent: 'Edge TTS.',
     voiceSpeechDesc:
-      'Arahkan keluaran suara lewat VoiceStudio lokal (:3900), Piper, Kokoro, atau ElevenLabs.',
-    voiceEngineVoicestudioMeta: 'Uvicorn Lokal · ~180md',
-    voiceEnginePiperMeta: 'TTS CPU ARM64 Cepat',
-    voiceEngineKokoroMeta: 'Suara Neural Lokal Ekspresif',
-    voiceEngineElevenlabsMeta: 'Suara Studio Awan',
+      'Pilih suara neural Microsoft Edge TTS untuk balasan lisan agen Anda (Indonesia & Inggris).',
+    voiceEdgeGadisMeta: 'Indonesia · Suara Wanita Neural',
+    voiceEdgeArdiMeta: 'Indonesia · Suara Pria Neural',
+    voiceEdgeAriaMeta: 'Inggris · Suara Wanita Neural',
+    voiceEdgeGuyMeta: 'Inggris · Suara Pria Neural',
     voiceTranscriptPrefix: 'Transkrip',
     voiceTranscriptAccent: 'Langsung.',
     voiceQuickPrompt1: 'Berikan laporan status armada dan kesehatan VPS saat ini.',
@@ -1473,7 +1473,7 @@ export const TRANSLATIONS = {
     guideCh3Action: 'Buka Misi',
     guideCh4Title: 'Mode Suara & Obrolan Langsung',
     guideCh4Summary:
-      'Berbicaralah langsung ke spesialis mana pun melalui Web Speech API + VoiceStudio lokal (:3900), Piper, Kokoro, atau ElevenLabs, atau gunakan utas teks di halaman Obrolan.',
+      'Berbicaralah langsung ke spesialis mana pun melalui Web Speech API + suara neural Microsoft Edge TTS (Indonesia & Inggris), atau gunakan utas teks di halaman Obrolan.',
     guideCh4Bullet1:
       'Ganti lawan bicara dengan cepat lewat deretan potret agen di bagian bawah Mode Suara.',
     guideCh4Bullet2:
@@ -1491,7 +1491,7 @@ export const TRANSLATIONS = {
     guideCh6Summary:
       'Unggah proyek ini ke GitHub lalu jalankan skrip pembaruan 1 perintah di vm-23-58-ubuntu untuk mengganti dasbor lama secara otomatis.',
     guideCh6Bullet1:
-      'Otomatis mempertahankan NEXORA_TOKEN, kunci SSH, dan nexora-tunnel.service (port 20128, 3900, 9377) yang sudah ada.',
+      'Otomatis mempertahankan NEXORA_TOKEN, kunci SSH, dan nexora-tunnel.service (port 20128, 9377) sekaligus memasang Edge TTS.',
     guideCh6Bullet2:
       'Membuat folder cadangan bertanggal (~/nexora-bridge.bak-*) sebelum mengalihkan port 9120 ke GALAXY.',
     guideCh6Bullet3:
@@ -1624,8 +1624,8 @@ const ID_AGENT_OVERRIDES: Record<
   studio: {
     role: 'Produser Audio & Suara',
     workstation: 'Meja Studio Suara',
-    task: 'VoiceStudio :3900 hangat & siap untuk sintesis suara latensi rendah',
-    soul: 'Mengelola profil suara VoiceStudio (:3900), Piper, Kokoro, dan ElevenLabs untuk pengarahan suara seketika.',
+    task: 'Edge TTS neural siap untuk sintesis suara instan',
+    soul: 'Mengelola profil suara neural Microsoft Edge TTS (Indonesia & Inggris) untuk pengarahan suara seketika.',
   },
   deal: {
     role: 'Ketua Strategi & Pertumbuhan',
@@ -1747,8 +1747,8 @@ const ID_INTEGRATION_OVERRIDES: Record<string, { name: string; description: stri
     description: 'Perute LLM multi-penyedia terpadu yang menyeimbangkan kelas Sonnet, Gemini, dan GPT.',
   },
   'int-voice': {
-    name: 'VoiceStudio TTS / STT',
-    description: 'Server sintesis suara Piper & Kokoro lokal dengan cadangan awan ElevenLabs.',
+    name: 'Edge TTS Neural',
+    description: 'Sintesis suara neural Microsoft Edge (bahasa Indonesia & Inggris) dengan cadangan TTS peramban.',
   },
   'int-tailscale': {
     name: 'Jaringan Privat Tailscale',
@@ -1767,7 +1767,7 @@ const ID_INTEGRATION_OVERRIDES: Record<string, { name: string; description: stri
 const ID_HEALTH_CHECK_OVERRIDES: Record<string, { name: string; detail: string }> = {
   'hc-1': { name: 'Gerbang Hermes (:9119)', detail: 'PID 998 aktif mendengarkan di 100.72.221.36:9119' },
   'hc-2': { name: 'Proksi 9Router (:20128)', detail: 'Server aktif sehat, 4 rute model terhubung' },
-  'hc-3': { name: 'VoiceStudio TTS (:3900)', detail: 'Pekerja Uvicorn siap (Kokoro / Piper aktif)' },
+  'hc-3': { name: 'Mesin Neural Edge TTS', detail: 'Suara neural Microsoft Edge siap (ID & EN)' },
   'hc-4': { name: 'Pekerja Utama Node (:9377)', detail: 'Jeda putaran kejadian 0,8 md' },
   'hc-5': { name: 'Soket Unix Gerbang', detail: '~/.hermes/gateway.sock merespons normal' },
   'hc-6': { name: 'Bidang Kontrol Tailscale', detail: 'Terhubung · Jalur langsung antar-rekan aktif' },
@@ -1795,12 +1795,12 @@ const ID_MISSION_OVERRIDES: Record<
   'm-1009': {
     title: 'Kebiasaan produktif yang layak dimulai',
     planSummary:
-      'Research merangkum pola kebiasaan efektif, Content menyusun panduan 30 hari, dan Studio menyiapkan pengarahan suara VoiceStudio pukul 07:30.',
+      'Research merangkum pola kebiasaan efektif, Content menyusun panduan 30 hari, dan Studio menyiapkan pengarahan suara Edge TTS pukul 07:30.',
     updatedAgo: '4 HARI LALU',
     steps: {
       's-1': 'Audit pemicu kebiasaan berbasis bukti & pengurangan hambatan',
       's-2': 'Susun protokol operator 30 hari & aturan cadangan',
-      's-3': 'Atur templat laporan suara VoiceStudio pukul 07:30',
+      's-3': 'Atur templat laporan suara Edge TTS pukul 07:30',
     },
   },
   'm-1010': {
@@ -1811,7 +1811,7 @@ const ID_MISSION_OVERRIDES: Record<
     steps: {
       's-4': 'Uji latensi langsung vs relai DERP di 100.72.221.36',
       's-5': 'Susun unit pengawas systemd RestartSec=5 untuk jembatan terowongan',
-      's-6': 'Verifikasi kebijakan ikatan Tailscale untuk 9Router :20128 & VoiceStudio :3900',
+      's-6': 'Verifikasi kebijakan ikatan Tailscale untuk 9Router :20128 & Hermes :9119',
     },
   },
   'm-1011': {
@@ -1949,21 +1949,21 @@ Pemeriksaan telemetri rutin diarahkan ke model cepat (Flash/Mini) melalui 9Route
 Guardian menjalankan pemeriksaan disk dan trafik keluar setiap hari pukul 06:00 lewat Jadwal Rutin agar tidak ada tagihan tak terduga.`,
   },
   'doc-3': {
-    title: 'Arsitektur Suara Latensi Rendah VoiceStudio (:3900)',
+    title: 'Arsitektur Suara Neural Edge TTS',
     category: 'Rekayasa',
     updatedAt: '18 Nov 2026',
-    content: `# Arsitektur Suara Latensi Rendah VoiceStudio (:3900)
+    content: `# Arsitektur Suara Neural Edge TTS
 
 ## Ringkasan Tumpukan
-VoiceStudio berjalan lewat \`uvicorn\` di \`127.0.0.1:3900\` (terhubung privat lewat Tailscale) dan menyediakan titik akhir \`/v1/audio/speech\` yang kompatibel dengan standar OpenAI.
+Mode Suara menyintesis audio MP3 neural langsung melalui **Microsoft Edge TTS** (\`edge-tts\`) pada jembatan GALAXY lewat titik akhir \`/api/voice/speak\`, tanpa membutuhkan server VoiceStudio lokal maupun beban GPU/RAM tambahan.
 
-## Mesin Suara yang Didukung
-- **Piper Lokal**: Sintesis suara CPU sangat cepat (~180 md pada ARM64)
-- **Kokoro v1**: Intonasi alami yang ekspresif untuk pengarahan eksekutif panjang
-- **ElevenLabs Awan**: Cadangan kloning suara studio opsional saat kunci API diatur
+## Suara Neural yang Tersedia
+- **id-ID-GadisNeural** & **id-ID-ArdiNeural**: Suara neural bahasa Indonesia alami (wanita & pria)
+- **en-US-AriaNeural** & **en-US-GuyNeural**: Suara neural bahasa Inggris yang ekspresif
+- **Cadangan TTS Peramban**: Pengalihan otomatis jika sedang luring
 
 ## Kiat Operator
-Gunakan jawaban ringkas di Mode Suara agar balasan lisan tetap di bawah 15 detik, sementara tabel lengkap disimpan otomatis ke Pustaka Dokumen.`,
+Gunakan jawaban ringkas di Mode Suara agar balasan lisan tetap nyaman didengar, sementara tabel lengkap disimpan otomatis ke Pustaka Dokumen.`,
   },
   'doc-4': {
     title: 'Peta Perutean Multi-Penyedia 9Router (:20128)',
@@ -1987,7 +1987,7 @@ Mengarahkan pemeriksaan rutin cron dan pemantauan VPS ke model kelas Flash berha
     updatedAt: '17 Nov 2026',
     content: `# Daftar Periksa Keamanan Jaringan Privat Tailscale
 
-- Ikat Gerbang Hermes (\`9119\`), 9Router (\`20128\`), dan VoiceStudio (\`3900\`) hanya ke loopback atau IP Tailscale \`100.72.221.36\`.
+- Ikat Gerbang Hermes (\`9119\`) dan 9Router (\`20128\`) hanya ke loopback atau IP Tailscale \`100.72.221.36\`.
 - Jangan pernah membuka port shell atau jembatan langsung ke antarmuka publik \`0.0.0.0\`.
 - Pertahankan \`--accept-dns=false\` pada VPS Ubuntu pendamping jika resolver penyedia bentrok dengan MagicDNS.
 - Verifikasi konektivitas dua arah setiap minggu dengan \`tailscale ping -c 3 100.72.221.36\`.`,
@@ -2026,7 +2026,7 @@ const ID_CHAT_SEED_OVERRIDES: Record<string, string> = {
   'c-2':
     'Meja Riset aktif. Saya telah menyelesaikan verifikasi Oracle PAYG Always Free dan menyiapkan rujukan untuk NX-1009. Silakan minta saya meneliti topik, tolok ukur, atau arsitektur teknis apa pun.',
   'c-3':
-    'Meja Rekayasa Kode siap. Cabang proyek di hermesagent bersih; hermes :9119, 9router :20128, dan voicestudio :3900 berjalan normal. Siap memeriksa log atau menulis kode.',
+    'Meja Rekayasa Kode siap. Cabang proyek di hermesagent bersih; hermes :9119, 9router :20128, dan Edge TTS berjalan normal. Siap memeriksa log atau menulis kode.',
   'c-4':
     'Penjaga VPS melapor: hermesagent (4 vCPU ARM64, 24 GB RAM, 200 GB NVMe) berada di beban CPU 18% dan RAM terpakai 5,4 GB. Latensi rekan Tailscale 24 md. Nol percobaan SSH tidak sah dalam 24 jam terakhir.',
 };
@@ -2330,7 +2330,7 @@ const DEFAULT_EN_TASKS: Record<string, string> = {
   signal: 'Monitoring Telegram topics & Discord alert webhooks',
   design: 'Auditing token contrast & mobile layout ergonomics',
   ledger: 'Tracking 9Router monthly token spend & Oracle PAYG quota',
-  studio: 'VoiceStudio :3900 warmed & ready for low-latency TTS',
+  studio: 'Edge TTS neural voices ready for instant synthesis',
   deal: 'Drafting partner outreach matrix for Q4 sprint',
   guardian: 'Watching hermesagent (100.72.221.36) RAM, Tailscale & ports',
   travel: 'Keeping cron cadences and itinerary timelines synced',

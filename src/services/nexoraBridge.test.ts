@@ -22,7 +22,7 @@ const SAMPLE_TELEMETRY: BridgeTelemetry = {
   services: [
     { name: 'hermes-gateway', unit: 'hermes-gateway', state: 'active', healthy: true, latency_ms: 2 },
     { name: '9router (:20128)', unit: '9router', state: 'active', healthy: true, latency_ms: 14 },
-    { name: 'voicestudio (:3900)', unit: 'voicestudio', state: 'down', healthy: false, latency_ms: 0 },
+    { name: 'Edge TTS Neural', unit: 'edge-tts', state: 'down', healthy: false, latency_ms: 0 },
   ],
   agents: [
     {
@@ -44,7 +44,7 @@ const SAMPLE_TELEMETRY: BridgeTelemetry = {
       arch: 'care_pavilion',
       soul: '# Guardian Live',
       status: 'ALERT',
-      task: 'ALERT: voicestudio (:3900)',
+      task: 'ALERT: edge-tts',
       is_core: true,
     },
     {
@@ -86,7 +86,7 @@ test('mergeBridgeTelemetry strictly isolates default & vps-guardian Telegram age
   assert.equal(hybrid.agents[0].profileKey, 'alpha-trader');
   assert.equal(hybrid.agents[0].buildingName, 'alpha trader Desk');
 
-  const voiceCheck = hybrid.healthChecks.find((c) => c.name.includes('VoiceStudio'));
+  const voiceCheck = hybrid.healthChecks.find((c) => c.name.includes('Edge TTS'));
   assert.equal(voiceCheck?.status, 'fail');
 
   const strict = mergeBridgeTelemetry(

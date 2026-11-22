@@ -243,6 +243,24 @@ function loadInitialState(): PersistedState {
         ? parsed.settings.language
         : DEFAULT_SETTINGS.language;
 
+    const savedIntegrations = parsed.integrations?.length
+      ? parsed.integrations.map((item) => {
+          if (item.id === 'int-voice' && /voicestudio/i.test(item.name)) {
+            const replacement = INITIAL_INTEGRATIONS.find((i) => i.id === 'int-voice');
+            return replacement ? { ...replacement, enabled: item.enabled } : item;
+          }
+          return item;
+        })
+      : INITIAL_INTEGRATIONS;
+
+    const rawVoiceEngine = parsed.settings?.voiceEngine;
+    const safeVoiceEngine: OperatorSettings['voiceEngine'] =
+      rawVoiceEngine === 'browser-tts' ? 'browser-tts' : 'edge-tts';
+    const savedEdgeVoice =
+      typeof parsed.settings?.edgeVoiceId === 'string' && parsed.settings.edgeVoiceId.trim()
+        ? parsed.settings.edgeVoiceId.trim()
+        : DEFAULT_SETTINGS.edgeVoiceId;
+
     const nextState: PersistedState = {
       workspaceVersion: WORKSPACE_VERSION,
       agents: filteredAgents,
@@ -252,12 +270,14 @@ function loadInitialState(): PersistedState {
       docs: Array.isArray(parsed.docs) && parsed.docs.length > 0 ? parsed.docs : INITIAL_DOCS,
       crons: filteredCrons,
       files: filteredFiles.length > 0 ? filteredFiles : INITIAL_FILES,
-      integrations: parsed.integrations?.length ? parsed.integrations : INITIAL_INTEGRATIONS,
+      integrations: savedIntegrations,
       interAgentLogs: filteredLogs,
       settings: {
         ...DEFAULT_SETTINGS,
         ...(parsed.settings ?? {}),
         language: savedLang,
+        voiceEngine: safeVoiceEngine,
+        edgeVoiceId: savedEdgeVoice,
         // Never restore secret bearer tokens from localStorage
         bridgeToken: '',
       },
@@ -1678,12 +1698,13 @@ export default function App() {
       model: agent.model || 'combo-best',
     });
     let audioBlob: Blob | undefined;
+    const chosenEdgeVoice = settings.edgeVoiceId || 'id-ID-GadisNeural';
     if (settings.autoSpeakReplies) {
       try {
         const tts = await speakViaBridge(settings.bridgeUrl, sessionToken, {
           agent_id: agent.profileKey,
-          text: chatRes.reply.slice(0, 600),
-          voice: 'alloy',
+          text: chatRes.reply.slice(0, 900),
+          voice: chosenEdgeVoice,
         });
         audioBlob = tts.audioBlob;
       } catch {
@@ -1693,7 +1714,7 @@ export default function App() {
     return {
       replyText: chatRes.reply,
       audioBlob,
-      engineLabel: audioBlob ? 'VoiceStudio :3900' : `${chatRes.model} · TTS`,
+      engineLabel: audioBlob ? `Edge TTS (${chosenEdgeVoice})` : `${chatRes.model} · Browser TTS`,
     };
   };
 

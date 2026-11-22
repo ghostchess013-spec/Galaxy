@@ -333,23 +333,23 @@ Guardian runs a daily disk & egress check at 06:00 via Standing Orders to guaran
   },
   {
     id: 'doc-3',
-    title: 'VoiceStudio (:3900) Low-Latency TTS Architecture',
+    title: 'Edge TTS Neural Voice Architecture',
     category: 'Engineering',
     authorAgentId: 'studio',
     updatedAt: 'Nov 18, 2026',
-    wordCount: 205,
-    content: `# VoiceStudio (:3900) Low-Latency TTS Architecture
+    wordCount: 190,
+    content: `# Edge TTS Neural Voice Architecture
 
 ## Stack Overview
-VoiceStudio runs via \`uvicorn\` on \`127.0.0.1:3900\` (bridged privately over Tailscale) exposing an OpenAI-compatible \`/v1/audio/speech\` endpoint.
+Voice Mode synthesizes natural neural MP3 audio directly through **Microsoft Edge TTS** (\`edge-tts\`) on the GALAXY bridge via \`/api/voice/speak\`, with zero local GPU/VRAM overhead and no separate VoiceStudio daemon required.
 
-## Supported Backends
-- **Piper Local**: Ultra-fast CPU synthesis (~180ms TTFB on ARM64)
-- **Kokoro v1**: Expressive natural prosody for longer executive briefings
-- **ElevenLabs Cloud**: Optional studio voice cloning fallback when API key is configured
+## Available Neural Voices
+- **id-ID-GadisNeural** & **id-ID-ArdiNeural**: Natural Indonesian female and male neural voices
+- **en-US-AriaNeural** & **en-US-GuyNeural**: Expressive English neural voices
+- **Browser Web Speech Fallback**: Instant zero-latency fallback if offline
 
 ## Operator Tip
-Use concise responses in Voice Mode so spoken replies stay under 15 seconds while full tables are filed automatically to Docs.`,
+Use concise responses in Voice Mode so spoken replies stay crisp while full tables are filed automatically to Docs.`,
   },
   {
     id: 'doc-4',
@@ -380,7 +380,7 @@ Routing routine cron heartbeats and VPS probes to Flash-tier endpoints reduced m
     wordCount: 162,
     content: `# Tailscale Private Mesh Hardening Checklist
 
-- Bind Hermes Gateway (\`9119\`), 9Router (\`20128\`), and VoiceStudio (\`3900\`) strictly to loopback or Tailscale IP \`100.72.221.36\`.
+- Bind Hermes Gateway (\`9119\`) and 9Router (\`20128\`) strictly to loopback or Tailscale IP \`100.72.221.36\`.
 - Never expose raw shell or bridge ports to \`0.0.0.0\` public interfaces.
 - Keep \`--accept-dns=false\` on companion Ubuntu VPS if provider resolvers conflict with MagicDNS.
 - Verify bidirectional reachability weekly with \`tailscale ping -c 3 100.72.221.36\`.`,
@@ -457,17 +457,16 @@ services:
   nine_router:
     bind: 127.0.0.1
     port: 20128
-  voice_studio:
-    bind: 127.0.0.1
-    port: 3900
-    default_engine: kokoro`,
+  voice_tts:
+    engine: edge-tts
+    default_voice: id-ID-GadisNeural`,
   },
 ];
 
 export const INITIAL_HEALTH_CHECKS: HealthCheck[] = [
   { id: 'hc-1', name: 'Hermes Gateway (:9119)', category: 'core', status: 'pass', latencyMs: 11, detail: 'PID 998 listening on 100.72.221.36:9119' },
   { id: 'hc-2', name: '9Router Dispatch Proxy (:20128)', category: 'core', status: 'pass', latencyMs: 18, detail: 'Next server healthy, 4 active model routes' },
-  { id: 'hc-3', name: 'VoiceStudio TTS (:3900)', category: 'core', status: 'pass', latencyMs: 24, detail: 'Uvicorn worker warm (Kokoro / Piper ready)' },
+  { id: 'hc-3', name: 'Edge TTS Neural Engine', category: 'core', status: 'pass', latencyMs: 16, detail: 'Microsoft Edge neural voices ready (ID & EN)' },
   { id: 'hc-4', name: 'Node MainThread Worker (:9377)', category: 'core', status: 'pass', latencyMs: 9, detail: 'Event loop lag 0.8ms' },
   { id: 'hc-5', name: 'Gateway Unix Socket', category: 'core', status: 'pass', latencyMs: 2, detail: '~/.hermes/gateway.sock responsive' },
   { id: 'hc-6', name: 'Tailscale Control Plane', category: 'network', status: 'pass', latencyMs: 31, detail: 'Connected · Direct peer path active' },
@@ -511,11 +510,11 @@ export const INITIAL_INTEGRATIONS: IntegrationService[] = [
   },
   {
     id: 'int-voice',
-    name: 'VoiceStudio TTS / STT',
-    endpoint: 'http://127.0.0.1:3900/v1/audio/speech',
+    name: 'Edge TTS Neural',
+    endpoint: '/api/voice/speak (edge-tts)',
     category: 'voice',
     status: 'connected',
-    description: 'Local Piper & Kokoro speech synthesis server with ElevenLabs cloud fallback.',
+    description: 'Microsoft Edge neural speech synthesis (Indonesian & English voices) with browser TTS fallback.',
     enabled: true,
   },
   {
@@ -553,7 +552,8 @@ export const DEFAULT_SETTINGS: OperatorSettings = {
   timezone: 'Asia/Jakarta',
   theme: 'obsidian-ember',
   language: 'id',
-  voiceEngine: 'voicestudio',
+  voiceEngine: 'edge-tts',
+  edgeVoiceId: 'id-ID-GadisNeural',
   autoSpeakReplies: true,
   bridgeMode: 'demo',
   bridgeUrl: 'http://100.85.109.20:9120',

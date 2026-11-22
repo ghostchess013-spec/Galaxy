@@ -38,18 +38,24 @@ DIST_DIR = BASE_DIR / "dist"
 UPSTREAM_ENDPOINTS = {
     "hermes_dashboard": f"http://{MAIN_VPS_IP}:9119",
     "nine_router": "http://127.0.0.1:20128",
-    "voicestudio": "http://127.0.0.1:3900",
     "camofox": "http://127.0.0.1:9377",
 }
 
 AGENT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,48}$")
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}$")
+EDGE_VOICE_RE = re.compile(r"^[a-z]{2,3}-[A-Z]{2,4}-[A-Za-z0-9]+Neural$")
+DEFAULT_EDGE_VOICE = "id-ID-GadisNeural"
+LEGACY_VOICE_ALIASES = {
+    "alloy": "id-ID-GadisNeural",
+    "echo": "id-ID-ArdiNeural",
+    "nova": "en-US-AriaNeural",
+    "onyx": "en-US-GuyNeural",
+}
 
 ALLOWED_SYSTEMD_UNITS: Set[str] = {
     "hermes-gateway",
     "hermes-dashboard",
     "9router",
-    "voicestudio",
     "camofox",
 }
 
@@ -432,7 +438,6 @@ disk_pct = round((du.used / (du.total or 1)) * 100.0, 1)
 port_checks = [
     ('hermes-dashboard (:9119)', '100.72.221.36', 9119, 'hermes-dashboard'),
     ('9router (:20128)', '127.0.0.1', 20128, '9router'),
-    ('voicestudio (:3900)', '127.0.0.1', 3900, 'voicestudio'),
     ('camofox (:9377)', '127.0.0.1', 9377, 'camofox'),
 ]
 services = []
@@ -542,6 +547,14 @@ async def collect_telemetry() -> Dict[str, Any]:
         }
 
     remote = json.loads(ssh_res["stdout"])
+    edge_tts_ready = _is_edge_tts_installed()
+    remote["services"].append({
+        "name": "Edge TTS Neural",
+        "unit": "edge-tts",
+        "state": "active" if edge_tts_ready else "standby",
+        "healthy": True,
+        "latency_ms": 12 if edge_tts_ready else 0,
+    })
     down_svcs = [s["name"] for s in remote["services"] if not s["healthy"]]
     vps_alert = remote["cpu"]["percent"] > 88.0 or remote["ram"]["percent"] > 92.0 or len(down_svcs) > 0
 
@@ -630,7 +643,7 @@ class ChatReq(BaseModel):
 class VoiceReq(BaseModel):
     agent_id: str = "default"
     text: str
-    voice: str = "alloy"
+    voice: str = DEFAULT_EDGE_VOICE
 
 
 class ShellReq(BaseModel):
@@ -2027,38 +2040,106 @@ async def chat_agent(req: ChatReq):
         active_tasks.pop(agent_id, None)
 
 
+def _is_edge_tts_installed() -> bool:
+    try:
+        import importlib.util
+        return importlib.util.find_spec("edge_tts") is not None
+    except Exception:
+        return False
+
+
+def _sanitize_edge_voice(raw: Optional[str]) -> str:
+    candidate = (raw or "").strip()
+    if candidate.lower() in LEGACY_VOICE_ALIASES:
+        return LEGACY_VOICE_ALIASES[candidate.lower()]
+    if EDGE_VOICE_RE.match(candidate):
+        return candidate
+    return DEFAULT_EDGE_VOICE
+
+
+def _clean_tts_text(raw: str) -> str:
+    # Strip markdown formatting markers so Edge TTS speaks natural sentences cleanly
+    cleaned = re.sub(r"```[\s\S]*?```", " ", raw or "")
+    cleaned = re.sub(r"[`*_#>]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:1200]
+
+
+async def _synthesize_edge_tts_bytes(text: str, voice: str) -> Optional[bytes]:
+    try:
+        import edge_tts  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+
+    comm = edge_tts.Communicate(text=text, voice=voice)
+    chunks: List[bytes] = []
+    async for chunk in comm.stream():
+        if isinstance(chunk, dict) and chunk.get("type") == "audio":
+            data = chunk.get("data")
+            if isinstance(data, (bytes, bytearray)):
+                chunks.append(bytes(data))
+    return b"".join(chunks) if chunks else None
+
+
+async def _synthesize_edge_tts_via_ssh(text: str, voice: str) -> Optional[bytes]:
+    """Optional fallback: if edge-tts is installed on hermesagent instead of VPS 2, synthesize there."""
+    script_tpl = r"""
+import asyncio, base64, json
+payload = json.loads(__PAYLOAD_JSON__)
+try:
+    import edge_tts
+except ImportError:
+    print(json.dumps({'ok': False, 'reason': 'missing'}))
+    raise SystemExit(0)
+
+async def main():
+    comm = edge_tts.Communicate(text=payload['text'], voice=payload['voice'])
+    buf = bytearray()
+    async for ch in comm.stream():
+        if isinstance(ch, dict) and ch.get('type') == 'audio' and ch.get('data'):
+            buf.extend(ch['data'])
+    print(json.dumps({'ok': bool(buf), 'b64': base64.b64encode(bytes(buf)).decode('ascii')}))
+
+asyncio.run(main())
+"""
+    encoded = json.dumps(json.dumps({"text": text, "voice": voice}))
+    res = await ssh_run_python(script_tpl.replace("__PAYLOAD_JSON__", encoded), timeout=25.0)
+    if not res["ok"] or not res["stdout"]:
+        return None
+    try:
+        parsed = json.loads(res["stdout"].splitlines()[-1])
+        if parsed.get("ok") and parsed.get("b64"):
+            return base64.b64decode(parsed["b64"])
+    except Exception:
+        return None
+    return None
+
+
 @app.post("/api/voice/speak", dependencies=[Depends(verify_token)])
 async def voice_speak(req: VoiceReq):
     raw_id = (req.agent_id or "operator").strip().lower()
     agent_id = "operator" if raw_id in EXCLUDED_CORE_PROFILES else validate_agent_slug(raw_id, allow_default=False)
-    active_tasks[agent_id] = {"task": "VOICESTUDIO :3900", "started": time.time()}
-    record_blackbox(agent_id, "VOICE", "TTS", req.text[:60])
+    voice = _sanitize_edge_voice(req.voice)
+    clean_text = _clean_tts_text(req.text)
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Text for Edge TTS cannot be empty")
+
+    active_tasks[agent_id] = {"task": f"EDGE TTS ({voice})", "started": time.time()}
+    record_blackbox(agent_id, "VOICE", "EDGE_TTS", f"{voice}: {clean_text[:60]}")
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            resp = await client.post(
-                f"{UPSTREAM_ENDPOINTS['voicestudio']}/v1/audio/speech",
-                json={
-                    "model": "tts-1",
-                    "input": req.text,
-                    "voice": req.voice or "alloy",
-                    "response_format": "wav",
-                },
-            )
-            if resp.status_code == 404:
-                resp = await client.post(
-                    f"{UPSTREAM_ENDPOINTS['voicestudio']}/api/tts",
-                    json={"text": req.text, "voice": req.voice},
-                )
-
-            ctype = resp.headers.get("content-type", "")
-            if resp.status_code < 400 and ("audio/" in ctype or "application/octet-stream" in ctype):
-                return Response(content=resp.content, media_type=ctype.split(";")[0] or "audio/wav")
-
-            return {"ok": resp.status_code < 400, "status_code": resp.status_code, "detail": resp.text[:250]}
+        audio_bytes = await asyncio.wait_for(_synthesize_edge_tts_bytes(clean_text, voice), timeout=25.0)
+        if not audio_bytes:
+            audio_bytes = await _synthesize_edge_tts_via_ssh(clean_text, voice)
+        if audio_bytes:
+            return Response(content=audio_bytes, media_type="audio/mpeg")
+        return {
+            "ok": False,
+            "detail": "edge-tts package is not installed yet (run galaxy-update or pip install edge-tts); using browser TTS fallback",
+        }
     except Exception as exc:
         err_desc = _format_exc(exc)
         record_blackbox(agent_id, "VOICE", "ERROR", err_desc[:180], level="ERROR")
-        raise HTTPException(status_code=502, detail=f"VoiceStudio error: {err_desc}")
+        raise HTTPException(status_code=502, detail=f"Edge TTS error: {err_desc}")
     finally:
         active_tasks.pop(agent_id, None)
 

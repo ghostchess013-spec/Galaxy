@@ -489,7 +489,7 @@ export function mergeBridgeTelemetry(
         (unit === 'hermes-gateway' && lower.includes('hermes gateway')) ||
         (unit === 'hermes-dashboard' && lower.includes('hermes dashboard')) ||
         (unit === '9router' && lower.includes('9router')) ||
-        (unit === 'voicestudio' && lower.includes('voicestudio')) ||
+        (unit === 'edge-tts' && lower.includes('edge tts')) ||
         (unit === 'camofox' && (lower.includes('camofox') || lower.includes('9377')))
       ) {
         return {
