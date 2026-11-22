@@ -43,7 +43,7 @@ UPSTREAM_ENDPOINTS = {
 }
 
 AGENT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,48}$")
-MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
+MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}$")
 
 ALLOWED_SYSTEMD_UNITS: Set[str] = {
     "hermes-gateway",
@@ -260,6 +260,45 @@ def validate_avatar_value(raw: Optional[str], strict: bool = True) -> str:
     return ""
 
 
+def _format_exc(exc: BaseException) -> str:
+    msg = str(exc).strip()
+    name = type(exc).__name__
+    return f"{name}: {msg}" if msg else name
+
+
+def _extract_yaml_model(raw_text: str) -> str:
+    if not raw_text:
+        return ""
+    lines = raw_text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m_top = re.match(r"^model\s*:\s*(.*)$", line)
+        if m_top:
+            rest = m_top.group(1).strip()
+            if rest and not rest.startswith("#"):
+                val = rest.split("#", 1)[0].strip().strip('"').strip("'")
+                if val and MODEL_ID_RE.match(val):
+                    return val
+                return ""
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                stripped = nxt.lstrip(" ")
+                indent = len(nxt) - len(stripped)
+                if stripped and not stripped.startswith("#") and indent == 0:
+                    break
+                m_sub = re.match(r"^\s+(default|name|id)\s*:\s*(.*)$", nxt)
+                if m_sub:
+                    val = m_sub.group(2).split("#", 1)[0].strip().strip('"').strip("'")
+                    if val and MODEL_ID_RE.match(val):
+                        return val
+                i += 1
+            break
+        i += 1
+    return ""
+
+
 def normalize_router_model(raw: Optional[str]) -> str:
     val = (raw or "").strip()
     if not val or val.lower() == "default":
@@ -275,7 +314,7 @@ def validate_model_id(raw: Optional[str]) -> str:
     if not MODEL_ID_RE.match(val):
         raise HTTPException(
             status_code=400,
-            detail="Invalid model identifier (use letters, numbers, and . _ : / @ - only)",
+            detail="Invalid model identifier (use letters, numbers, and . _ : / @ + - only)",
         )
     return val
 
@@ -354,7 +393,7 @@ async def ssh_run_python(script: str, timeout: float = 10.0) -> Dict[str, Any]:
 
 
 REMOTE_PROBE_SCRIPT = r"""
-import json, os, shutil, socket, time
+import json, os, re, shutil, socket, time
 from pathlib import Path
 
 def read_cpu():
@@ -438,7 +477,15 @@ if p_root.exists():
             except Exception:
                 pass
         soul = (d / 'SOUL.md').read_text(errors='replace') if (d / 'SOUL.md').exists() else ''
-        raw_model = str(meta.get('model') or 'combo-best').strip()
+        raw_model = str(meta.get('model') or '').strip()
+        if (not raw_model or raw_model.lower().startswith('9router')) and (d / 'config.yaml').is_file():
+            try:
+                cfg_txt = (d / 'config.yaml').read_text(encoding='utf-8', errors='replace')
+                m_def = re.search(r'(?m)^\s*(?:default|name)\s*:\s*["\']?([^\s#"\']+)["\']?', cfg_txt)
+                if m_def:
+                    raw_model = m_def.group(1).strip()
+            except Exception:
+                pass
         if not raw_model or raw_model.lower().startswith('9router'):
             raw_model = 'combo-best'
         profiles.append({
@@ -801,6 +848,25 @@ else:
     dst_cfg.write_text(upsert_config_model('', chosen_model), encoding='utf-8')
     config_copied = True
 
+# 4. Inherit sanitized auth.json if present (LLM provider credentials only, never Telegram/Discord tokens)
+src_auth = h_home / 'auth.json'
+dst_auth = d / 'auth.json'
+if src_auth.is_file() and not dst_auth.is_file():
+    try:
+        auth_obj = json.loads(src_auth.read_text(encoding='utf-8', errors='replace'))
+        if isinstance(auth_obj, dict):
+            cleaned_auth = {
+                k: v for k, v in auth_obj.items()
+                if not re.search(r'(telegram|discord|slack|whatsapp|bot_token|chat_id)', str(k), re.I)
+            }
+            dst_auth.write_text(json.dumps(cleaned_auth, indent=2), encoding='utf-8')
+            try:
+                os.chmod(dst_auth, 0o600)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 (d / 'nexora_meta.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
 (d / 'SOUL.md').write_text(soul, encoding='utf-8')
 assert (d / 'SOUL.md').is_file() and (d / 'nexora_meta.json').is_file()
@@ -882,14 +948,137 @@ async def update_soul(agent_id: str, req: UpdateSoulReq):
     return {"ok": True}
 
 
+def _parse_models_payload(data: Any, seen: Set[str], out: List[Dict[str, str]]) -> int:
+    added = 0
+    raw_items: List[Any] = []
+    if isinstance(data, dict):
+        for key in ("data", "models", "combos", "items"):
+            val = data.get(key)
+            if isinstance(val, list):
+                raw_items.extend(val)
+    elif isinstance(data, list):
+        raw_items = data
+
+    for item in raw_items:
+        if isinstance(item, str):
+            mid = item.strip()
+            owner = ""
+        elif isinstance(item, dict):
+            mid = str(item.get("id") or item.get("name") or "").strip()
+            owner = str(item.get("owned_by") or item.get("provider") or item.get("type") or "").strip()
+        else:
+            continue
+        if not mid or mid in seen or not MODEL_ID_RE.match(mid):
+            continue
+        seen.add(mid)
+        is_combo = mid.lower().startswith("combo") or owner.lower() == "combo"
+        group = "combo" if is_combo else (owner or (mid.split("/", 1)[0] if "/" in mid else "9router"))
+        out.append({"id": mid, "label": mid, "group": group})
+        added += 1
+    return added
+
+
+async def _fetch_9router_models_via_ssh(candidate_keys: List[str]) -> Dict[str, Any]:
+    """Fallback model discovery directly on hermesagent (:20128 + db.json combos + ~/.hermes/config.yaml)."""
+    script_tpl = r"""
+import glob, json, re, urllib.request, urllib.error
+from pathlib import Path
+
+keys = json.loads(__KEYS_JSON__)
+items = []
+source = 'fallback'
+
+for key in keys:
+    headers = {'Accept': 'application/json'}
+    if key:
+        headers['Authorization'] = f'Bearer {key}'
+        headers['x-api-key'] = key
+    for path in ('/v1/models', '/api/combos'):
+        try:
+            req = urllib.request.Request(f'http://127.0.0.1:20128{path}', headers=headers, method='GET')
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw = resp.read().decode('utf-8', errors='replace')
+                data = json.loads(raw)
+                arr = data.get('data') if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                if isinstance(data, dict) and not arr:
+                    arr = data.get('combos') or data.get('models') or []
+                if isinstance(arr, list) and arr:
+                    for it in arr:
+                        if isinstance(it, dict) and path == '/api/combos' and 'owned_by' not in it:
+                            it = dict(it)
+                            it['owned_by'] = 'combo'
+                        items.append(it)
+                    source = '9router'
+        except Exception:
+            continue
+    if source == '9router':
+        break
+
+# Also read 9Router db.json combos if available
+home = Path.home()
+db_candidates = [
+    home / '.9router' / 'db.json',
+    home / '9router' / 'db.json',
+    home / '9router' / 'data' / 'db.json',
+    home / '.config' / '9router' / 'db.json',
+    home / '.local' / 'share' / '9router' / 'db.json',
+]
+for pat in [str(home / '*9router*' / 'db.json'), str(home / '*9router*' / '*' / 'db.json')]:
+    for found in glob.glob(pat):
+        p = Path(found)
+        if p not in db_candidates:
+            db_candidates.append(p)
+for dbp in db_candidates:
+    if not dbp.is_file():
+        continue
+    try:
+        d = json.loads(dbp.read_text(encoding='utf-8', errors='replace'))
+        if isinstance(d, dict):
+            for c in d.get('combos', []) or []:
+                if isinstance(c, dict) and (c.get('name') or c.get('id')):
+                    items.append({'id': str(c.get('name') or c.get('id')), 'owned_by': 'combo'})
+                    source = '9router'
+    except Exception:
+        pass
+
+# Read active Hermes default model from ~/.hermes/config.yaml
+hermes_default = ''
+cfg_fp = home / '.hermes' / 'config.yaml'
+if cfg_fp.is_file():
+    try:
+        txt = cfg_fp.read_text(encoding='utf-8', errors='replace')
+        m_top = re.search(r'(?m)^model\s*:\s*([^\s#\n][^\n]*)$', txt)
+        if m_top:
+            hermes_default = m_top.group(1).split('#', 1)[0].strip().strip('"').strip("'")
+        else:
+            m_sub = re.search(r'(?m)^\s+(?:default|name)\s*:\s*["\']?([^\s#"\']+)["\']?', txt)
+            if m_sub:
+                hermes_default = m_sub.group(1).strip()
+    except Exception:
+        pass
+
+print(json.dumps({'source': source, 'items': items, 'hermes_default': hermes_default}))
+"""
+    script = script_tpl.replace("__KEYS_JSON__", json.dumps(json.dumps(candidate_keys[:8])))
+    res = await ssh_run_python(script, timeout=10.0)
+    if not res["ok"] or not res["stdout"]:
+        return {"source": "fallback", "items": [], "hermes_default": ""}
+    try:
+        return json.loads(res["stdout"].splitlines()[-1])
+    except Exception:
+        return {"source": "fallback", "items": [], "hermes_default": ""}
+
+
 @app.get("/api/models", dependencies=[Depends(verify_token)])
 async def list_router_models(refresh: int = 0):
-    """Fetches real available models & combos directly from 9Router (:20128/v1/models)."""
+    """Fetches real available models & combos directly from 9Router (:20128/v1/models) with SSH fallback."""
     now_ts = time.time()
-    if not refresh and _models_cache["models"] and (now_ts - float(_models_cache["ts"])) < MODELS_CACHE_TTL_SEC:
+    cache_ttl = MODELS_CACHE_TTL_SEC if _models_cache.get("source") == "9router" else 5.0
+    if not refresh and _models_cache["models"] and (now_ts - float(_models_cache["ts"])) < cache_ttl:
         return {
             "ok": True,
             "source": _models_cache["source"],
+            "default_model": _models_cache.get("default_model", "combo-best"),
             "models": _models_cache["models"],
         }
 
@@ -899,10 +1088,12 @@ async def list_router_models(refresh: int = 0):
         candidate_keys.append("")
 
     discovered: List[Dict[str, str]] = []
+    seen: Set[str] = set()
     source = "fallback"
+    hermes_default = str(ctx.get("default_model") or "").strip()
 
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=3.5, read=6.0, write=5.0, pool=3.5)) as client:
             for api_key in candidate_keys:
                 headers: Dict[str, str] = {"Accept": "application/json"}
                 if api_key:
@@ -913,41 +1104,42 @@ async def list_router_models(refresh: int = 0):
                     if resp.status_code >= 400:
                         continue
                     data = resp.json()
-                    raw_items = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
-                    if isinstance(raw_items, list) and raw_items:
-                        seen: Set[str] = set()
-                        for item in raw_items:
-                            if isinstance(item, str):
-                                mid = item.strip()
-                                owner = ""
-                            elif isinstance(item, dict):
-                                mid = str(item.get("id") or item.get("name") or "").strip()
-                                owner = str(item.get("owned_by") or item.get("provider") or "").strip()
-                            else:
-                                continue
-                            if not mid or mid in seen or not MODEL_ID_RE.match(mid):
-                                continue
-                            seen.add(mid)
-                            is_combo = mid.lower().startswith("combo") or owner.lower() == "combo"
-                            group = "combo" if is_combo else (owner or (mid.split("/", 1)[0] if "/" in mid else "9router"))
-                            discovered.append({"id": mid, "label": mid, "group": group})
-                        if discovered:
-                            source = "9router"
-                            break
+                    if _parse_models_payload(data, seen, discovered) > 0:
+                        source = "9router"
+                        break
                 except Exception:
                     continue
     except Exception:
         pass
+
+    # If VPS 2 tunnel returned no models, query 9Router directly on hermesagent via SSH
+    if source != "9router":
+        ssh_data = await _fetch_9router_models_via_ssh(candidate_keys)
+        if ssh_data.get("hermes_default") and not hermes_default:
+            hermes_default = str(ssh_data["hermes_default"]).strip()
+        if _parse_models_payload(ssh_data.get("items", []), seen, discovered) > 0:
+            source = "9router"
+
+    if hermes_default and MODEL_ID_RE.match(hermes_default) and hermes_default not in seen:
+        seen.add(hermes_default)
+        is_combo = hermes_default.lower().startswith("combo")
+        discovered.append({
+            "id": hermes_default,
+            "label": hermes_default,
+            "group": "combo" if is_combo else "hermes",
+        })
 
     if discovered:
         discovered.sort(key=lambda m: (0 if m["group"] == "combo" else 1, m["id"].lower()))
     else:
         discovered = [{"id": "combo-best", "label": "combo-best", "group": "combo"}]
 
+    default_model = hermes_default if (hermes_default and MODEL_ID_RE.match(hermes_default)) else discovered[0]["id"]
     _models_cache["models"] = discovered
     _models_cache["source"] = source
+    _models_cache["default_model"] = default_model
     _models_cache["ts"] = now_ts
-    return {"ok": True, "source": source, "models": discovered}
+    return {"ok": True, "source": source, "default_model": default_model, "models": discovered}
 
 
 @app.put("/api/agents/{agent_id}/model", dependencies=[Depends(verify_token)])
@@ -1295,6 +1487,7 @@ def resolve_val(raw):
     return raw
 
 yaml_key_re = re.compile(r'(?:api_key|openai_api_key|custom_api_key|router_api_key)\s*:\s*["\']?([^\s#"\']+)["\']?', re.I)
+default_model = ''
 for cf in [p_dir / 'config.yaml', h_home / 'config.yaml']:
     if not cf.is_file():
         continue
@@ -1302,6 +1495,14 @@ for cf in [p_dir / 'config.yaml', h_home / 'config.yaml']:
         txt = cf.read_text(encoding='utf-8', errors='replace')
         for m in yaml_key_re.finditer(txt):
             add_key(resolve_val(m.group(1)))
+        if not default_model:
+            m_top = re.search(r'(?m)^model\s*:\s*([^\s#\n][^\n]*)$', txt)
+            if m_top:
+                default_model = m_top.group(1).split('#', 1)[0].strip().strip('"').strip("'")
+            else:
+                m_sub = re.search(r'(?m)^\s+(?:default|name)\s*:\s*["\']?([^\s#"\']+)["\']?', txt)
+                if m_sub:
+                    default_model = m_sub.group(1).strip()
     except Exception:
         pass
 
@@ -1391,17 +1592,19 @@ try:
 except Exception:
     pass
 
-print(json.dumps({'keys': keys[:12], 'soul': soul}))
+print(json.dumps({'keys': keys[:12], 'soul': soul, 'default_model': default_model}))
 """
     remote_script = remote_script_tpl.replace("__SLUG__", json.dumps(agent_id))
     remote_keys: List[str] = []
     soul = ""
+    default_model = ""
     res = await ssh_run_python(remote_script, timeout=8.0)
     if res["ok"] and res["stdout"]:
         try:
             parsed = json.loads(res["stdout"])
             remote_keys = [str(k) for k in parsed.get("keys", []) if isinstance(k, str) and k.strip()]
             soul = str(parsed.get("soul", "") or "")
+            default_model = str(parsed.get("default_model", "") or "").strip()
         except Exception:
             pass
 
@@ -1412,7 +1615,7 @@ print(json.dumps({'keys': keys[:12], 'soul': soul}))
         if k and k not in merged_keys:
             merged_keys.append(k)
 
-    ctx = {"ts": now, "keys": merged_keys, "soul": soul}
+    ctx = {"ts": now, "keys": merged_keys, "soul": soul, "default_model": default_model}
     _chat_ctx_cache[agent_id] = ctx
     return ctx
 
@@ -1540,7 +1743,7 @@ try:
         argv,
         capture_output=True,
         text=True,
-        timeout=70,
+        timeout=45,
         env=env,
         cwd=str(p_dir),
     )
@@ -1552,14 +1755,14 @@ try:
     else:
         print(json.dumps({'ok': False, 'reason': f'rc={proc.returncode}', 'stderr': err[:300]}))
 except Exception as exc:
-    print(json.dumps({'ok': False, 'reason': str(exc)[:200]}))
+    print(json.dumps({'ok': False, 'reason': f'{type(exc).__name__}: {exc}'[:200]}))
 """
     script = (
         runner_tpl.replace("__SLUG__", json.dumps(agent_id))
         .replace("__PROMPT__", json.dumps(combined_prompt))
         .replace("__MODEL__", json.dumps(model))
     )
-    res = await ssh_run_python(script, timeout=78.0)
+    res = await ssh_run_python(script, timeout=52.0)
     if not res["ok"] or not res["stdout"]:
         record_blackbox(agent_id, "HERMES_CLI", "FALLBACK", (res.get("stderr") or "ssh_exec_failed")[:160])
         return None
@@ -1573,6 +1776,103 @@ except Exception as exc:
     except Exception:
         return None
     return None
+
+
+async def _call_9router_chat_via_ssh(
+    candidate_keys: List[str],
+    target_model: str,
+    messages: List[Dict[str, str]],
+) -> tuple[bool, str, str, str, bool]:
+    """Direct fallback to 127.0.0.1:20128 on hermesagent via SSH when VPS 2 tunnel stalls/times out."""
+    script_tpl = r"""
+import json, urllib.request, urllib.error
+
+payload = json.loads(__PAYLOAD_JSON__)
+keys = payload['keys']
+model = payload['model']
+messages = payload['messages']
+body = json.dumps({'model': model, 'messages': messages}).encode('utf-8')
+
+last_err = 'No valid 9Router API key found'
+saw_auth = False
+
+for key in keys:
+    headers = {'Content-Type': 'application/json'}
+    if key:
+        headers['Authorization'] = f'Bearer {key}'
+        headers['x-api-key'] = key
+    req = urllib.request.Request(
+        'http://127.0.0.1:20128/v1/chat/completions',
+        data=body,
+        headers=headers,
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=55) as resp:
+            raw = resp.read().decode('utf-8', errors='replace')
+            data = json.loads(raw)
+            choices = data.get('choices') if isinstance(data, dict) else None
+            if isinstance(choices, list) and choices:
+                msg = choices[0].get('message', {}) if isinstance(choices[0], dict) else {}
+                content = msg.get('content')
+                if content is not None:
+                    print(json.dumps({
+                        'ok': True,
+                        'text': str(content),
+                        'model': str(data.get('model', model)),
+                        'key': key,
+                        'saw_auth': False,
+                    }))
+                    raise SystemExit(0)
+            last_err = f'Unexpected 9Router response: {raw[:180]}'
+            break
+    except urllib.error.HTTPError as he:
+        raw = ''
+        try:
+            raw = he.read().decode('utf-8', errors='replace')
+        except Exception:
+            pass
+        try:
+            edata = json.loads(raw)
+        except Exception:
+            edata = None
+        err_msg = f'HTTP {he.code}: {raw[:180]}'
+        if isinstance(edata, dict):
+            eobj = edata.get('error')
+            if isinstance(eobj, dict):
+                err_msg = str(eobj.get('message') or eobj.get('detail') or eobj.get('code') or err_msg)
+            elif isinstance(eobj, str) and eobj:
+                err_msg = eobj
+        last_err = err_msg
+        if he.code in (401, 403) or 'api key' in err_msg.lower() or 'unauthorized' in err_msg.lower():
+            saw_auth = True
+            continue
+        break
+    except Exception as exc:
+        last_err = f'{type(exc).__name__}: {exc}' if str(exc) else type(exc).__name__
+        break
+
+print(json.dumps({'ok': False, 'text': last_err, 'model': model, 'key': '', 'saw_auth': saw_auth}))
+"""
+    encoded = json.dumps(
+        json.dumps({"keys": candidate_keys[:8] or [""], "model": target_model, "messages": messages})
+    )
+    script = script_tpl.replace("__PAYLOAD_JSON__", encoded)
+    res = await ssh_run_python(script, timeout=62.0)
+    if not res["ok"] or not res["stdout"]:
+        err = res.get("stderr") or "SSH 9Router fallback failed"
+        return False, err[:240], target_model, "", False
+    try:
+        parsed = json.loads(res["stdout"].splitlines()[-1])
+        return (
+            bool(parsed.get("ok")),
+            str(parsed.get("text") or "Unknown 9Router SSH error"),
+            str(parsed.get("model") or target_model),
+            str(parsed.get("key") or ""),
+            bool(parsed.get("saw_auth", False)),
+        )
+    except Exception as exc:
+        return False, _format_exc(exc), target_model, "", False
 
 
 @app.post("/api/chat", dependencies=[Depends(verify_token)])
@@ -1603,7 +1903,7 @@ async def chat_agent(req: ChatReq):
                 "tools_enabled": True,
             }
 
-        # 2. Automatic fallback to 9Router direct completion if Hermes CLI is unavailable
+        # 2. Automatic fallback to 9Router direct completion (VPS 2 tunnel + automatic SSH fallback)
         active_tasks[agent_id] = {"task": f"9ROUTER: {model}", "started": time.time()}
         ctx = await _discover_chat_context(agent_id, force_refresh=False)
         soul_block = ctx.get("soul", "").strip()
@@ -1625,18 +1925,26 @@ async def chat_agent(req: ChatReq):
         async def _try_keys(candidate_keys: List[str], target_model: str):
             last_err = "No valid 9Router API key found"
             saw_auth_err = False
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            saw_network_err = False
+            timeout_cfg = httpx.Timeout(connect=5.0, read=65.0, write=15.0, pool=5.0)
+            async with httpx.AsyncClient(timeout=timeout_cfg) as client:
                 for api_key in candidate_keys:
                     headers = {
                         "Authorization": f"Bearer {api_key}",
                         "x-api-key": api_key,
                         "Content-Type": "application/json",
                     }
-                    resp = await client.post(
-                        f"{UPSTREAM_ENDPOINTS['nine_router']}/v1/chat/completions",
-                        headers=headers,
-                        json={"model": target_model, "messages": messages},
-                    )
+                    try:
+                        resp = await client.post(
+                            f"{UPSTREAM_ENDPOINTS['nine_router']}/v1/chat/completions",
+                            headers=headers,
+                            json={"model": target_model, "messages": messages},
+                        )
+                    except httpx.HTTPError as exc:
+                        last_err = _format_exc(exc)
+                        saw_network_err = True
+                        break
+
                     try:
                         data = resp.json()
                     except Exception:
@@ -1656,6 +1964,16 @@ async def chat_agent(req: ChatReq):
                         continue
                     return False, err_msg, target_model, "", False
 
+            if saw_network_err:
+                record_blackbox(
+                    agent_id,
+                    "9ROUTER",
+                    "SSH_FALLBACK",
+                    f"Tunnel error ({last_err[:100]}), retrying 9Router directly on hermesagent",
+                    level="WARN",
+                )
+                return await _call_9router_chat_via_ssh(candidate_keys, target_model, messages)
+
             return False, last_err, target_model, "", saw_auth_err
 
         ok, result_text, used_model, winning_key, saw_auth_err = await _try_keys(ctx.get("keys", []), model)
@@ -1666,17 +1984,27 @@ async def chat_agent(req: ChatReq):
             ctx = fresh_ctx
             ok, result_text, used_model, winning_key, _ = await _try_keys(fresh_ctx.get("keys", []), model)
 
-        # If a custom model name has no active credentials/provider in 9Router, automatically retry with combo-best
-        if not ok and model != "combo-best":
-            model = "combo-best"
-            active_tasks[agent_id] = {"task": "9ROUTER: combo-best", "started": time.time()}
-            ok, result_text, used_model, winning_key, _ = await _try_keys(ctx.get("keys", []), "combo-best")
+        # Fallback chain: if chosen model failed, try real ~/.hermes/config.yaml default model and combo-best
+        fallback_models: List[str] = []
+        hermes_def = str(ctx.get("default_model") or "").strip()
+        if hermes_def and MODEL_ID_RE.match(hermes_def) and hermes_def != model:
+            fallback_models.append(hermes_def)
+        if model != "combo-best" and "combo-best" not in fallback_models:
+            fallback_models.append("combo-best")
+
+        for fb_model in fallback_models:
+            if ok:
+                break
+            model = fb_model
+            active_tasks[agent_id] = {"task": f"9ROUTER: {fb_model}", "started": time.time()}
+            ok, result_text, used_model, winning_key, _ = await _try_keys(ctx.get("keys", []), fb_model)
 
         if not ok:
-            record_blackbox(agent_id, "9ROUTER", "ERROR", result_text[:180], level="ERROR")
+            clean_err = result_text.strip() or "9Router did not return a reply"
+            record_blackbox(agent_id, "9ROUTER", "ERROR", clean_err[:180], level="ERROR")
             raise HTTPException(
                 status_code=502,
-                detail=f"9Router ({model}): {result_text}. Set NINE_ROUTER_API_KEY in nexora-bridge.service or ~/.hermes/.env if using a custom key.",
+                detail=f"9Router ({model}): {clean_err}",
             )
 
         _preferred_router_key = winning_key
@@ -1692,8 +2020,9 @@ async def chat_agent(req: ChatReq):
     except HTTPException:
         raise
     except Exception as exc:
-        record_blackbox(agent_id, "9ROUTER", "ERROR", str(exc), level="ERROR")
-        raise HTTPException(status_code=502, detail=f"9Router error: {exc}")
+        err_desc = _format_exc(exc)
+        record_blackbox(agent_id, "9ROUTER", "ERROR", err_desc[:180], level="ERROR")
+        raise HTTPException(status_code=502, detail=f"9Router error ({model}): {err_desc}")
     finally:
         active_tasks.pop(agent_id, None)
 
@@ -1727,8 +2056,9 @@ async def voice_speak(req: VoiceReq):
 
             return {"ok": resp.status_code < 400, "status_code": resp.status_code, "detail": resp.text[:250]}
     except Exception as exc:
-        record_blackbox(agent_id, "VOICE", "ERROR", str(exc), level="ERROR")
-        raise HTTPException(status_code=502, detail=f"VoiceStudio error: {exc}")
+        err_desc = _format_exc(exc)
+        record_blackbox(agent_id, "VOICE", "ERROR", err_desc[:180], level="ERROR")
+        raise HTTPException(status_code=502, detail=f"VoiceStudio error: {err_desc}")
     finally:
         active_tasks.pop(agent_id, None)
 

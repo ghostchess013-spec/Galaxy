@@ -183,7 +183,7 @@ export async function sendBridgeChat(
   return bridgeJson(baseUrl, token, '/api/chat', {
     method: 'POST',
     body: payload,
-    timeoutMs: 90000,
+    timeoutMs: 130000,
   });
 }
 
@@ -282,9 +282,9 @@ export async function fetchBridgeModels(
   baseUrl: string,
   token: string,
   refresh = false,
-): Promise<{ ok: boolean; source?: string; models: BridgeModelOption[] }> {
+): Promise<{ ok: boolean; source?: string; default_model?: string; models: BridgeModelOption[] }> {
   const suffix = refresh ? '?refresh=1' : '';
-  return bridgeJson(baseUrl, token, `/api/models${suffix}`, { timeoutMs: 12000 });
+  return bridgeJson(baseUrl, token, `/api/models${suffix}`, { timeoutMs: 14000 });
 }
 
 export async function updateBridgeAgentAvatar(

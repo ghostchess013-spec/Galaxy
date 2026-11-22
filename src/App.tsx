@@ -1418,7 +1418,8 @@ export default function App() {
           .filter(
             (m) =>
               !m.content.startsWith('Live bridge error:') &&
-              !m.content.startsWith('Kesalahan jembatan langsung:'),
+              !m.content.startsWith('Kesalahan jembatan langsung:') &&
+              !m.content.startsWith('Galat jembatan langsung:'),
           )
           .slice(-10)
           .map((m) => ({
