@@ -191,7 +191,7 @@ export default function AddAgentModal({
       archetype,
       avatarUrl,
       soulSummary: soulSummary.trim() || defaultSoul,
-      tools: ['hermes_cli', '9router_proxy', 'memory_read'],
+      tools: ['hermes_cli', 'hermes_skills', '9router_proxy'],
     });
     setName('');
     setStationName('');

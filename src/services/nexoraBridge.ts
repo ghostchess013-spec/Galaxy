@@ -172,11 +172,18 @@ export async function sendBridgeChat(
     model?: string;
     history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   },
-): Promise<{ ok: boolean; reply: string; model: string; latency_ms?: number }> {
+): Promise<{
+  ok: boolean;
+  reply: string;
+  model: string;
+  latency_ms?: number;
+  runtime?: string;
+  tools_enabled?: boolean;
+}> {
   return bridgeJson(baseUrl, token, '/api/chat', {
     method: 'POST',
     body: payload,
-    timeoutMs: 65000,
+    timeoutMs: 90000,
   });
 }
 
@@ -332,8 +339,19 @@ function coerceArchetype(raw: string, fallback: BuildingArchetype): BuildingArch
 }
 
 /**
+ * The user's 2 main Telegram bots (default / Executor & vps-guardian / Guardian)
+ * remain strictly isolated on Telegram and are never synced into this dashboard.
+ */
+export const EXCLUDED_CORE_PROFILE_KEYS: ReadonlySet<string> = new Set([
+  'default',
+  'vps-guardian',
+  'executor',
+  'guardian',
+]);
+
+/**
  * Pure reconciliation helper: maps live hermesagent profiles, services, and blackbox entries
- * onto NEXORA 3.0 domain state without losing 3D Agent City spatial geometry.
+ * onto GALAXY domain state while strictly excluding the 2 isolated Telegram core agents.
  */
 export function mergeBridgeTelemetry(
   telemetry: BridgeTelemetry,
@@ -346,18 +364,23 @@ export function mergeBridgeTelemetry(
   healthChecks: HealthCheck[];
   interAgentLogs: InterAgentLog[];
 } {
-  const isExcluded = (key: string): boolean => Boolean(excludedProfileKeys?.has(key));
-  const activeRemoteAgents = telemetry.agents.filter((ra) => !isExcluded(ra.id));
+  const isExcluded = (key: string): boolean => {
+    const clean = key.trim().toLowerCase();
+    return EXCLUDED_CORE_PROFILE_KEYS.has(clean) || Boolean(excludedProfileKeys?.has(key));
+  };
+  const activeRemoteAgents = telemetry.agents.filter(
+    (ra) => !ra.is_core && !isExcluded(ra.id) && !isExcluded(ra.name),
+  );
   const remoteByProfile = new Map(activeRemoteAgents.map((ra) => [ra.id, ra]));
 
   const updatedAgents: Agent[] = [];
   const matchedRemoteIds = new Set<string>();
 
   for (const existing of currentAgents) {
-    const matchKey = existing.isHQ ? 'default' : existing.profileKey;
-    if (isExcluded(matchKey) || isExcluded(existing.id)) {
+    if (existing.isHQ || isExcluded(existing.profileKey) || isExcluded(existing.id)) {
       continue;
     }
+    const matchKey = existing.profileKey;
     const remote = remoteByProfile.get(matchKey);
 
     if (remote) {
@@ -377,32 +400,27 @@ export function mergeBridgeTelemetry(
 
   for (const remote of activeRemoteAgents) {
     if (matchedRemoteIds.has(remote.id)) continue;
-    const isHq = remote.id === 'default';
     updatedAgents.push({
-      id: isHq ? 'executor' : `vps-${remote.id}`,
-      name: isHq ? 'Executor' : remote.name,
-      buildingName: isHq
-        ? 'Executor HQ'
-        : remote.id === 'vps-guardian'
-          ? 'Care Center'
-          : `${remote.name.replace(/-/g, ' ')} Tower`,
+      id: `vps-${remote.id}`,
+      name: remote.name,
+      buildingName: `${remote.name.replace(/-/g, ' ')} Desk`,
       role: remote.role || 'Hermes Specialist Agent',
-      department: remote.is_core ? 'Core Fleet' : 'VPS Profile',
+      department: 'VPS Profile',
       profileKey: remote.id,
       status: mapRemoteStatus(remote.status),
-      archetype: coerceArchetype(remote.arch, isHq ? 'hq_spire' : 'observatory_dome'),
-      isHQ: isHq,
+      archetype: coerceArchetype(remote.arch, 'observatory_dome'),
+      isHQ: false,
       avatarUrl: remote.avatar || pickAutoPortrait(remote.id, remote.role, remote.arch),
       model: remote.model || 'combo-best',
       currentTask: remote.task || 'STANDBY',
       sessionsCount: 1,
-      tokensUsed: 12000,
-      avgReplySec: 3.1,
+      tokensUsed: 0,
+      avgReplySec: 2.8,
       uptimePct: 99.9,
       soulSummary: remote.soul || `Live Hermes profile ~/.hermes/profiles/${remote.id}`,
-      tools: ['hermes_cli', '9router_proxy', 'tailscale_mesh'],
+      tools: ['hermes_cli', 'hermes_skills', '9router_proxy'],
       ringAngle: 0,
-      ringRadius: isHq ? 0 : 7.4,
+      ringRadius: 7.4,
     });
   }
 
@@ -442,8 +460,8 @@ export function mergeBridgeTelemetry(
 
   const liveLogs: InterAgentLog[] = telemetry.blackbox.slice(0, 20).map((b) => ({
     id: `bb-${b.id}`,
-    fromAgentId: b.agent === 'default' ? 'executor' : b.agent,
-    toAgentId: 'executor',
+    fromAgentId: isExcluded(b.agent) ? 'system' : b.agent,
+    toAgentId: 'operator',
     channel: b.category.toLowerCase(),
     message: `[${b.action}] ${b.detail}`,
     timestamp: b.time,

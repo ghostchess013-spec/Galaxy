@@ -293,31 +293,37 @@ export default function HealthView({
           </div>
 
           <div className="mt-3 space-y-3.5 max-h-[460px] overflow-y-auto pr-1">
-            {interAgentLogs.map((log) => {
-              const from = agents.find((a) => a.id === log.fromAgentId)?.name ?? log.fromAgentId;
-              const to = agents.find((a) => a.id === log.toAgentId)?.name ?? log.toAgentId;
-              return (
-                <article
-                  key={log.id}
-                  className="rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-3.5"
-                >
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="font-semibold text-[var(--nx-text)]">
-                      {from} → {to}
-                    </span>
-                    <span className="font-mono text-[var(--nx-text-subtle)] tabular-nums">
-                      {log.timestamp}
-                    </span>
-                  </div>
-                  <p className="mt-1 font-mono text-[10px] text-[var(--nx-accent)]">
-                    #{log.channel}
-                  </p>
-                  <p className="mt-1.5 text-xs text-[var(--nx-text-muted)] leading-relaxed">
-                    {logMessageDisplay(log)}
-                  </p>
-                </article>
-              );
-            })}
+            {interAgentLogs.length === 0 ? (
+              <p className="py-10 text-center text-xs text-[var(--nx-text-muted)] leading-relaxed">
+                {t('cockpitBusEmpty')}
+              </p>
+            ) : (
+              interAgentLogs.map((log) => {
+                const from = agents.find((a) => a.id === log.fromAgentId)?.name ?? log.fromAgentId;
+                const to = agents.find((a) => a.id === log.toAgentId)?.name ?? log.toAgentId;
+                return (
+                  <article
+                    key={log.id}
+                    className="rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-3.5"
+                  >
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="font-semibold text-[var(--nx-text)]">
+                        {from} → {to}
+                      </span>
+                      <span className="font-mono text-[var(--nx-text-subtle)] tabular-nums">
+                        {log.timestamp}
+                      </span>
+                    </div>
+                    <p className="mt-1 font-mono text-[10px] text-[var(--nx-accent)]">
+                      #{log.channel}
+                    </p>
+                    <p className="mt-1.5 text-xs text-[var(--nx-text-muted)] leading-relaxed">
+                      {logMessageDisplay(log)}
+                    </p>
+                  </article>
+                );
+              })
+            )}
           </div>
         </section>
       </div>

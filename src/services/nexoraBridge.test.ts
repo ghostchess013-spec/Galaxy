@@ -72,21 +72,19 @@ const SAMPLE_TELEMETRY: BridgeTelemetry = {
   ],
 };
 
-test('mergeBridgeTelemetry reconciles real VPS profiles in hybrid and strict modes', () => {
+test('mergeBridgeTelemetry strictly isolates default & vps-guardian Telegram agents and syncs custom dashboard agents 1:1', () => {
   const hybrid = mergeBridgeTelemetry(
     SAMPLE_TELEMETRY,
     INITIAL_AGENTS,
     INITIAL_HEALTH_CHECKS,
     false,
   );
-  // 12 initial towers + 1 new custom VPS profile (alpha-trader)
-  assert.equal(hybrid.agents.length, 13);
-  const hq = hybrid.agents.find((a) => a.isHQ);
-  assert.equal(hq?.status, 'working');
-  assert.equal(hq?.currentTask, '9ROUTER: combo-best');
-
-  const guardian = hybrid.agents.find((a) => a.profileKey === 'vps-guardian');
-  assert.equal(guardian?.status, 'alert');
+  // Only custom dashboard profile alpha-trader should appear (default & vps-guardian strictly isolated)
+  assert.equal(hybrid.agents.length, 1);
+  assert.equal(hybrid.agents.some((a) => a.profileKey === 'default'), false);
+  assert.equal(hybrid.agents.some((a) => a.profileKey === 'vps-guardian'), false);
+  assert.equal(hybrid.agents[0].profileKey, 'alpha-trader');
+  assert.equal(hybrid.agents[0].buildingName, 'alpha trader Desk');
 
   const voiceCheck = hybrid.healthChecks.find((c) => c.name.includes('VoiceStudio'));
   assert.equal(voiceCheck?.status, 'fail');
@@ -97,12 +95,12 @@ test('mergeBridgeTelemetry reconciles real VPS profiles in hybrid and strict mod
     INITIAL_HEALTH_CHECKS,
     true,
   );
-  assert.equal(strict.agents.length, 3);
+  assert.equal(strict.agents.length, 1);
   const alphaTrader = strict.agents.find((a) => a.profileKey === 'alpha-trader');
   assert.ok(alphaTrader?.avatarUrl.startsWith('/src/assets/images/avatar_'));
-  assert.notEqual(alphaTrader?.avatarUrl, hq?.avatarUrl);
   assert.equal(strict.interAgentLogs.length, 1);
-  assert.equal(strict.interAgentLogs[0].fromAgentId, 'executor');
+  assert.equal(strict.interAgentLogs[0].fromAgentId, 'system');
+  assert.equal(strict.interAgentLogs[0].toAgentId, 'operator');
 });
 
 test('normalizeBridgeBaseUrl trims trailing slashes cleanly', () => {
@@ -119,7 +117,7 @@ test('mergeBridgeTelemetry suppresses tombstoned deleted profiles from stale in-
     true,
     excluded,
   );
-  assert.equal(strict.agents.length, 2);
+  assert.equal(strict.agents.length, 0);
   assert.equal(strict.agents.some((a) => a.profileKey === 'alpha-trader'), false);
 
   const hybrid = mergeBridgeTelemetry(
@@ -129,6 +127,7 @@ test('mergeBridgeTelemetry suppresses tombstoned deleted profiles from stale in-
     false,
     excluded,
   );
+  assert.equal(hybrid.agents.length, 0);
   assert.equal(hybrid.agents.some((a) => a.profileKey === 'alpha-trader'), false);
 });
 

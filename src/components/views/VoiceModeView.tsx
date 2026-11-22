@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Send, Volume2, VolumeX } from 'lucide-react';
+import { Mic, MicOff, Send, UserPlus, Volume2, VolumeX } from 'lucide-react';
 import { useI18n } from '../../i18n/translations';
 import type { Agent, OperatorSettings } from '../../types/nexora';
 import { generateAgentReply } from '../../utils/nexoraLogic';
@@ -19,6 +19,7 @@ interface VoiceModeViewProps {
   settings: OperatorSettings;
   bridgeStatus: 'demo' | 'connecting' | 'live' | 'error';
   onUpdateSettings: (patch: Partial<OperatorSettings>) => void;
+  onOpenAddAgent: () => void;
   onLiveVoiceExchange?: (
     agent: Agent,
     promptText: string,
@@ -30,10 +31,11 @@ export default function VoiceModeView({
   settings,
   bridgeStatus,
   onUpdateSettings,
+  onOpenAddAgent,
   onLiveVoiceExchange,
 }: VoiceModeViewProps) {
   const { lang, t, agentDisplay } = useI18n();
-  const [activeAgentId, setActiveAgentId] = useState<string>(agents[0]?.id ?? 'executor');
+  const [activeAgentId, setActiveAgentId] = useState<string>(agents[0]?.id ?? '');
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,7 +45,7 @@ export default function VoiceModeView({
     {
       id: 'vt-init',
       speaker: 'agent',
-      agentName: 'Executor',
+      agentName: agents[0]?.name ?? 'GALAXY',
       text: '',
       engine: 'VoiceStudio :3900',
       timestamp: '',
@@ -54,7 +56,7 @@ export default function VoiceModeView({
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
-  const activeDisp = agentDisplay(activeAgent);
+  const activeDisp = activeAgent ? agentDisplay(activeAgent) : null;
 
   const voiceEngines: Array<{
     id: OperatorSettings['voiceEngine'];
@@ -121,7 +123,7 @@ export default function VoiceModeView({
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = lang === 'id' ? 'id-ID' : 'en-US';
       utter.rate = settings.voiceEngine === 'piper' ? 1.08 : 0.98;
-      utter.pitch = activeAgent.isHQ ? 0.92 : 1.02;
+      utter.pitch = activeAgent?.isHQ ? 0.92 : 1.02;
       utter.onstart = () => setSpeaking(true);
       utter.onend = () => setSpeaking(false);
       utter.onerror = () => setSpeaking(false);
@@ -133,7 +135,7 @@ export default function VoiceModeView({
 
   const handleVoicePrompt = async (promptText: string) => {
     const clean = promptText.trim();
-    if (!clean || busy) return;
+    if (!clean || busy || !activeAgent) return;
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const defaultEngineLabel =
       voiceEngines.find((v) => v.id === settings.voiceEngine)?.label ?? 'VoiceStudio :3900';
@@ -263,7 +265,7 @@ export default function VoiceModeView({
       recognitionRef.current = rec;
       rec.start();
       setListening(true);
-      setCustomStatusNote(t('voiceStatusListening', { name: activeAgent.name }));
+      setCustomStatusNote(t('voiceStatusListening', { name: activeAgent?.name ?? 'GALAXY' }));
     } catch {
       setListening(false);
       setCustomStatusNote(t('voiceStatusMicFailed'));
@@ -278,6 +280,33 @@ export default function VoiceModeView({
   };
 
   const statusNote = customStatusNote ?? t('voiceStatusReady');
+
+  if (!activeAgent || !activeDisp) {
+    return (
+      <div className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-10 min-h-[460px] flex flex-col items-center justify-center text-center">
+        <div className="h-14 w-14 rounded-full border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] flex items-center justify-center text-[var(--nx-accent)] mb-4">
+          <Mic className="h-6 w-6" />
+        </div>
+        <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
+          {t('voiceEyebrow')}
+        </p>
+        <h1 className="font-editorial text-3xl mt-1 text-[var(--nx-text)]">
+          {t('voiceNoAgentsTitle')}
+        </h1>
+        <p className="mt-2 text-sm text-[var(--nx-text-muted)] max-w-md leading-relaxed">
+          {t('voiceNoAgentsDesc')}
+        </p>
+        <button
+          type="button"
+          onClick={onOpenAddAgent}
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[var(--nx-accent)] px-4 py-2.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] transition-colors cursor-pointer"
+        >
+          <UserPlus className="h-4 w-4" />
+          <span>{t('cockpitAddAgentBtn')}</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-8">

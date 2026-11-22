@@ -53,9 +53,10 @@ export function hireSpecialist(
   const trimmedName = (customName ?? '').trim() || preset.name;
   const trimmedBuilding = (customBuilding ?? '').trim() || preset.buildingName;
   const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'agent';
-  let candidateId = baseSlug;
+  const reserved = new Set(['default', 'vps-guardian']);
+  let candidateId = reserved.has(baseSlug) ? `${baseSlug}-office` : baseSlug;
   let suffix = 2;
-  while (agents.some((a) => a.id === candidateId)) {
+  while (reserved.has(candidateId) || agents.some((a) => a.id === candidateId || a.profileKey === candidateId)) {
     candidateId = `${baseSlug}-${suffix}`;
     suffix += 1;
   }
@@ -111,9 +112,10 @@ export function createCustomAgent(
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') || 'agent';
-  let candidateId = baseSlug;
+  const reserved = new Set(['default', 'vps-guardian']);
+  let candidateId = reserved.has(baseSlug) ? `${baseSlug}-office` : baseSlug;
   let suffix = 2;
-  while (agents.some((a) => a.id === candidateId || a.profileKey === candidateId)) {
+  while (reserved.has(candidateId) || agents.some((a) => a.id === candidateId || a.profileKey === candidateId)) {
     candidateId = `${baseSlug}-${suffix}`;
     suffix += 1;
   }
@@ -156,8 +158,8 @@ export function retireSpecialist(
   if (!target) {
     return { agents, removed: false, reason: 'Agent not found.' };
   }
-  if (target.isHQ) {
-    return { agents, removed: false, reason: 'Executor HQ cannot be retired.' };
+  if (target.isHQ || target.profileKey === 'default' || target.profileKey === 'vps-guardian') {
+    return { agents, removed: false, reason: 'Reserved core Telegram profiles cannot be retired here.' };
   }
   const remaining = agents.filter((a) => a.id !== agentId);
   return { agents: rebalanceCitySlots(remaining), removed: true };
@@ -221,14 +223,16 @@ export function createMission(
 
   const code = `NX-${maxNum + 1}`;
   const team = selectTeamForGoal(`${title} ${goal}`, agents);
-  const lead = team[1] ?? team[0];
-  const secondary = team[2] ?? team[0];
+  const leadId = team[1]?.id ?? team[0]?.id ?? 'operator';
+  const secondaryId = team[2]?.id ?? team[0]?.id ?? 'operator';
+  const finalOwnerId = team[0]?.id ?? 'operator';
   const lengthLabel =
     reportLength === 'brief'
       ? 'concise 1-page executive brief'
       : reportLength === 'deep_dive'
         ? 'comprehensive deep-dive dossier'
         : 'structured standard report';
+  const teamNames = team.length > 0 ? team.map((a) => a.name).join(', ') : 'Operator Team';
 
   return {
     id: `m-${maxNum + 1}-${Date.now()}`,
@@ -237,27 +241,27 @@ export function createMission(
     goal: goal.trim(),
     stage: 'approval',
     reportLength,
-    assignedAgentIds: team.map((a) => a.id),
+    assignedAgentIds: team.length > 0 ? team.map((a) => a.id) : ['operator'],
     createdAt: new Date().toISOString().slice(0, 10),
     updatedAgo: 'JUST NOW',
-    planSummary: `EXECUTOR assembled ${team.map((a) => a.name).join(', ')} to deliver a ${lengthLabel}. Awaiting your approval before any specialist begins work.`,
+    planSummary: `Assembled ${teamNames} to deliver a ${lengthLabel}. Awaiting your approval before work begins.`,
     steps: [
       {
         id: `st-1-${Date.now()}`,
         title: `Scope requirements & gather verified inputs for "${title.trim()}"`,
-        agentId: lead.id,
+        agentId: leadId,
         status: 'pending',
       },
       {
         id: `st-2-${Date.now()}`,
         title: `Execute core analysis & validate outputs against operating rules`,
-        agentId: secondary.id,
+        agentId: secondaryId,
         status: 'pending',
       },
       {
         id: `st-3-${Date.now()}`,
         title: `Synthesize final ${lengthLabel} and file to Docs Library`,
-        agentId: team[0].id,
+        agentId: finalOwnerId,
         status: 'pending',
       },
     ],

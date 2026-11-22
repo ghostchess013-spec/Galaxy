@@ -223,10 +223,18 @@ def verify_token(
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-def validate_agent_slug(agent_id: str, allow_default: bool = True) -> str:
+EXCLUDED_CORE_PROFILES = {"default", "vps-guardian"}
+
+
+def validate_agent_slug(agent_id: str, allow_default: bool = False) -> str:
     slug = agent_id.strip().lower()
-    if allow_default and slug == "default":
-        return "default"
+    if slug in EXCLUDED_CORE_PROFILES:
+        if allow_default and slug == "default":
+            return "default"
+        raise HTTPException(
+            status_code=403,
+            detail="Core Telegram agent profiles (default & vps-guardian) are isolated from this dashboard",
+        )
     if not AGENT_SLUG_RE.match(slug):
         raise HTTPException(status_code=400, detail="Invalid agent profile identifier")
     return slug
@@ -245,24 +253,31 @@ def validate_avatar_value(raw: Optional[str]) -> str:
     raise HTTPException(status_code=400, detail="Unsupported avatar image format")
 
 
-def validate_hermes_relpath(raw_path: str) -> str:
-    cleaned = raw_path.strip()
+def validate_hermes_relpath(raw: str) -> str:
+    cleaned = raw.strip()
     if cleaned.startswith("~/.hermes/"):
         cleaned = cleaned[len("~/.hermes/") :]
     cleaned = cleaned.lstrip("/")
     if not cleaned or ".." in cleaned or "\\" in cleaned or "\x00" in cleaned:
         raise HTTPException(status_code=400, detail="Invalid workspace file path")
 
+    # Never allow modifying the isolated Telegram core agents' SOUL.md files
+    if cleaned == "SOUL.md" or cleaned.startswith("profiles/vps-guardian/"):
+        raise HTTPException(
+            status_code=403,
+            detail="Core Telegram agent files (default & vps-guardian) are isolated from this dashboard",
+        )
+
     if cleaned in ALLOWED_ROOT_FILES:
         return cleaned
 
     m = re.match(r"^profiles/([a-z0-9][a-z0-9-]{0,48})/(SOUL\.md|USER\.md|config\.yaml)$", cleaned)
-    if m:
+    if m and m.group(1) not in EXCLUDED_CORE_PROFILES:
         return cleaned
 
     raise HTTPException(
         status_code=403,
-        detail="Only SOUL.md, USER.md, OPERATING_RULES.md, config.yaml, and profile SOUL files may be edited",
+        detail="Only USER.md, OPERATING_RULES.md, config.yaml, and dashboard agent profile files may be edited",
     )
 
 
@@ -374,45 +389,18 @@ if gw_pid_file.exists():
 services.insert(0, {'name': 'hermes-gateway', 'unit': 'hermes-gateway', 'state': 'active' if gw_up else 'inactive', 'healthy': gw_up, 'latency_ms': 2 if gw_up else 0})
 
 profiles = []
-default_soul = (h_home / 'SOUL.md').read_text(errors='replace') if (h_home / 'SOUL.md').exists() else ''
-default_meta = {'model': 'combo-best', 'role': 'Primary Hermes HQ Orchestrator', 'arch': 'hq_spire'}
-if (h_home / 'nexora_meta.json').exists():
-    try:
-        default_meta.update(json.loads((h_home / 'nexora_meta.json').read_text()))
-    except Exception:
-        pass
-
 busy_agents = set()
-proc_file = h_home / 'processes.json'
-if proc_file.exists():
-    try:
-        pdata = json.loads(proc_file.read_text())
-        if (isinstance(pdata, list) and len(pdata) > 0) or (isinstance(pdata, dict) and len(pdata) > 0):
-            busy_agents.add('default')
-    except Exception:
-        pass
-
-profiles.append({
-    'id': 'default',
-    'name': 'default',
-    'role': default_meta['role'],
-    'model': default_meta['model'],
-    'arch': 'hq_spire',
-    'avatar': default_meta.get('avatar', ''),
-    'soul': default_soul,
-    'is_core': True,
-    'remote_busy': 'default' in busy_agents,
-})
+excluded_core = {'default', 'vps-guardian'}
 
 p_root = h_home / 'profiles'
 if p_root.exists():
     for d in sorted(p_root.iterdir()):
-        if not d.is_dir() or d.name == 'default':
+        if not d.is_dir() or d.name in excluded_core:
             continue
         meta = {
-            'role': 'Systemd Sentinel & Watchdog' if d.name == 'vps-guardian' else 'Hermes Specialist Agent',
+            'role': 'Hermes Specialist Agent',
             'model': 'combo-best',
-            'arch': 'care_pavilion' if d.name == 'vps-guardian' else 'observatory_dome',
+            'arch': 'observatory_dome',
             'avatar': '',
         }
         if (d / 'nexora_meta.json').exists():
@@ -429,7 +417,7 @@ if p_root.exists():
             'arch': meta['arch'],
             'avatar': meta.get('avatar', ''),
             'soul': soul,
-            'is_core': d.name == 'vps-guardian',
+            'is_core': False,
             'remote_busy': d.name in busy_agents,
         })
 
@@ -468,30 +456,7 @@ async def collect_telemetry() -> Dict[str, Any]:
             "disk": {"used_gb": 0, "total_gb": 200, "percent": 0},
             "vps_alert": True,
             "services": [],
-            "agents": [
-                {
-                    "id": "default",
-                    "name": "default",
-                    "role": "Waiting for SSH Link...",
-                    "model": "combo-best",
-                    "arch": "hq_spire",
-                    "soul": "",
-                    "status": "ALERT",
-                    "task": "SSH LINK OFFLINE",
-                    "is_core": True,
-                },
-                {
-                    "id": "vps-guardian",
-                    "name": "vps-guardian",
-                    "role": "Waiting for SSH Link...",
-                    "model": "combo-best",
-                    "arch": "care_pavilion",
-                    "soul": "",
-                    "status": "ALERT",
-                    "task": "LINK OFFLINE",
-                    "is_core": True,
-                },
-            ],
+            "agents": [],
             "pending_approvals": list(pending_approvals.values()),
             "blackbox": blackbox_logs[:40],
         }
@@ -508,12 +473,12 @@ async def collect_telemetry() -> Dict[str, Any]:
     agents = []
     for p in remote["profiles"]:
         slug = p["id"]
-        if slug in _recently_deleted_profiles:
+        if slug in EXCLUDED_CORE_PROFILES or slug in _recently_deleted_profiles:
             continue
         has_hitl = any(a["agent"] == slug for a in pending_approvals.values())
-        if has_hitl or (slug == "vps-guardian" and vps_alert):
+        if has_hitl:
             p["status"] = "ALERT"
-            p["task"] = "APPROVAL GATE" if has_hitl else f"ALERT: {', '.join(down_svcs) or 'HIGH LOAD'}"
+            p["task"] = "APPROVAL GATE"
         elif slug in active_tasks:
             p["status"] = "EXECUTING"
             p["task"] = active_tasks[slug]["task"]
@@ -639,51 +604,125 @@ async def get_status():
 async def create_agent(req: CreateAgentReq):
     raw_slug = re.sub(r"[^a-z0-9\-]", "-", req.slug.lower().strip()).strip("-")
     slug = validate_agent_slug(raw_slug, allow_default=False)
+    if slug in EXCLUDED_CORE_PROFILES:
+        raise HTTPException(
+            status_code=403,
+            detail="Core Telegram profiles (default & vps-guardian) are reserved and isolated",
+        )
     safe_avatar = validate_avatar_value(req.avatar)
     soul = req.soul or f"# SOUL.md — {slug}\nRole: {req.role}\n"
-    meta = {"role": req.role, "model": req.model, "arch": req.arch, "avatar": safe_avatar}
+    meta = {
+        "role": req.role,
+        "model": req.model,
+        "arch": req.arch,
+        "avatar": safe_avatar,
+        "skills_linked": True,
+        "tools_enabled": True,
+    }
+    provision_tpl = r"""
+import json, os, re
+from pathlib import Path
+
+slug = __SLUG__
+meta = __META__
+soul = __SOUL__
+
+h_home = (Path.home() / '.hermes').resolve()
+root = (h_home / 'profiles').resolve()
+d = (root / slug).resolve()
+assert str(d).startswith(str(root) + '/')
+d.mkdir(parents=True, exist_ok=True)
+(d / 'memories').mkdir(exist_ok=True)
+
+# 1. Inherit all installed Hermes skills via symlink so every dashboard agent has full skills access
+shared_skills = h_home / 'skills'
+target_skills = d / 'skills'
+if shared_skills.exists() and not target_skills.exists() and not target_skills.is_symlink():
+    try:
+        os.symlink(shared_skills, target_skills)
+    except Exception:
+        pass
+
+# 2. Copy sanitized .env (LLM/tool API keys only — explicitly strip Telegram/Discord/bot tokens)
+src_env = h_home / '.env'
+dst_env = d / '.env'
+blocked_env_re = re.compile(r'^(export\s+)?(TELEGRAM|TG_|DISCORD|SLACK|WHATSAPP|MESSENGER|SIGNAL_|BOT_TOKEN|CHAT_ID|WEBHOOK|GATEWAY_TOKEN)', re.I)
+if src_env.is_file() and not dst_env.exists():
+    kept = []
+    for line in src_env.read_text(encoding='utf-8', errors='replace').splitlines():
+        s = line.strip()
+        if not s or s.startswith('#'):
+            continue
+        if blocked_env_re.search(s):
+            continue
+        kept.append(line)
+    if kept:
+        dst_env.write_text('\n'.join(kept) + '\n', encoding='utf-8')
+        try:
+            os.chmod(dst_env, 0o600)
+        except Exception:
+            pass
+
+# 3. Copy sanitized config.yaml (strips messaging/telegram sections so bots are never affected)
+src_cfg = h_home / 'config.yaml'
+dst_cfg = d / 'config.yaml'
+if src_cfg.is_file() and not dst_cfg.exists():
+    raw_lines = src_cfg.read_text(encoding='utf-8', errors='replace').splitlines()
+    out_lines = []
+    skip_indent = None
+    skip_section_re = re.compile(r'^(\s*)(telegram|discord|slack|whatsapp|messaging|platforms|channels)\s*:', re.I)
+    blocked_cfg_re = re.compile(r'(bot_token|telegram_token|chat_id|allowed_users|webhook_url)', re.I)
+    for line in raw_lines:
+        stripped = line.lstrip(' ')
+        indent = len(line) - len(stripped)
+        if skip_indent is not None:
+            if stripped and not stripped.startswith('#') and indent <= skip_indent:
+                skip_indent = None
+            else:
+                continue
+        m = skip_section_re.match(line)
+        if m:
+            skip_indent = len(m.group(1))
+            continue
+        if blocked_cfg_re.search(line):
+            continue
+        out_lines.append(line)
+    dst_cfg.write_text('\n'.join(out_lines) + '\n', encoding='utf-8')
+
+(d / 'nexora_meta.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
+(d / 'SOUL.md').write_text(soul, encoding='utf-8')
+"""
     py = (
-        "import json; from pathlib import Path; "
-        f"root = (Path.home() / '.hermes' / 'profiles').resolve(); "
-        f"d = (root / {json.dumps(slug)}).resolve(); "
-        "assert str(d).startswith(str(root) + '/'); "
-        "d.mkdir(parents=True, exist_ok=True); "
-        f"(d / 'nexora_meta.json').write_text({json.dumps(json.dumps(meta))}, encoding='utf-8'); "
-        f"(d / 'SOUL.md').write_text({json.dumps(soul)}, encoding='utf-8')"
+        provision_tpl.replace("__SLUG__", json.dumps(slug))
+        .replace("__META__", json.dumps(meta))
+        .replace("__SOUL__", json.dumps(soul))
     )
-    res = await ssh_run_python(py)
+    res = await ssh_run_python(py, timeout=12.0)
     if not res["ok"]:
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to create profile")
     _recently_deleted_profiles.pop(slug, None)
-    record_blackbox("default", "FLEET", "DEPLOY_AGENT", f"Created profile '{slug}' at ~/.hermes/profiles/{slug}")
+    record_blackbox(slug, "FLEET", "DEPLOY_AGENT", f"Created isolated profile '{slug}' with shared ~/.hermes/skills")
     asyncio.create_task(_broadcast_fresh_telemetry())
-    return {"ok": True, "slug": slug}
+    return {"ok": True, "slug": slug, "skills_linked": True}
 
 
 @app.put("/api/agents/{agent_id}/avatar", dependencies=[Depends(verify_token)])
 async def update_avatar(agent_id: str, req: UpdateAvatarReq):
-    slug = validate_agent_slug(agent_id, allow_default=True)
+    slug = validate_agent_slug(agent_id, allow_default=False)
+    if slug in EXCLUDED_CORE_PROFILES:
+        raise HTTPException(status_code=403, detail="Core Telegram profiles are isolated from this dashboard")
     safe_avatar = validate_avatar_value(req.avatar)
-    if slug == "default":
-        py = (
-            "import json; from pathlib import Path; "
-            "fp = Path.home() / '.hermes' / 'nexora_meta.json'; "
-            "meta = json.loads(fp.read_text(encoding='utf-8')) if fp.exists() else {}; "
-            f"meta['avatar'] = {json.dumps(safe_avatar)}; "
-            "fp.write_text(json.dumps(meta), encoding='utf-8')"
-        )
-    else:
-        py = (
-            "import json; from pathlib import Path; "
-            "root = (Path.home() / '.hermes' / 'profiles').resolve(); "
-            f"d = (root / {json.dumps(slug)}).resolve(); "
-            "assert str(d).startswith(str(root) + '/'); "
-            "d.mkdir(parents=True, exist_ok=True); "
-            "fp = d / 'nexora_meta.json'; "
-            "meta = json.loads(fp.read_text(encoding='utf-8')) if fp.exists() else {}; "
-            f"meta['avatar'] = {json.dumps(safe_avatar)}; "
-            "fp.write_text(json.dumps(meta), encoding='utf-8')"
-        )
+    py = (
+        "import json; from pathlib import Path; "
+        "root = (Path.home() / '.hermes' / 'profiles').resolve(); "
+        f"d = (root / {json.dumps(slug)}).resolve(); "
+        "assert str(d).startswith(str(root) + '/'); "
+        "d.mkdir(parents=True, exist_ok=True); "
+        "fp = d / 'nexora_meta.json'; "
+        "meta = json.loads(fp.read_text(encoding='utf-8')) if fp.exists() else {}; "
+        f"meta['avatar'] = {json.dumps(safe_avatar)}; "
+        "fp.write_text(json.dumps(meta), encoding='utf-8')"
+    )
     res = await ssh_run_python(py)
     if not res["ok"]:
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to save avatar")
@@ -693,21 +732,17 @@ async def update_avatar(agent_id: str, req: UpdateAvatarReq):
 
 @app.put("/api/agents/{agent_id}/soul", dependencies=[Depends(verify_token)])
 async def update_soul(agent_id: str, req: UpdateSoulReq):
-    slug = validate_agent_slug(agent_id, allow_default=True)
-    if slug == "default":
-        py = (
-            "from pathlib import Path; "
-            f"(Path.home() / '.hermes' / 'SOUL.md').write_text({json.dumps(req.soul)}, encoding='utf-8')"
-        )
-    else:
-        py = (
-            "from pathlib import Path; "
-            "root = (Path.home() / '.hermes' / 'profiles').resolve(); "
-            f"d = (root / {json.dumps(slug)}).resolve(); "
-            "assert str(d).startswith(str(root) + '/'); "
-            "d.mkdir(parents=True, exist_ok=True); "
-            f"(d / 'SOUL.md').write_text({json.dumps(req.soul)}, encoding='utf-8')"
-        )
+    slug = validate_agent_slug(agent_id, allow_default=False)
+    if slug in EXCLUDED_CORE_PROFILES:
+        raise HTTPException(status_code=403, detail="Core Telegram profiles are isolated from this dashboard")
+    py = (
+        "from pathlib import Path; "
+        "root = (Path.home() / '.hermes' / 'profiles').resolve(); "
+        f"d = (root / {json.dumps(slug)}).resolve(); "
+        "assert str(d).startswith(str(root) + '/'); "
+        "d.mkdir(parents=True, exist_ok=True); "
+        f"(d / 'SOUL.md').write_text({json.dumps(req.soul)}, encoding='utf-8')"
+    )
     res = await ssh_run_python(py)
     if not res["ok"]:
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to save SOUL.md")
@@ -734,9 +769,7 @@ async def _broadcast_fresh_telemetry() -> None:
 
 @app.delete("/api/agents/{agent_id}", dependencies=[Depends(verify_token)])
 async def delete_agent(agent_id: str):
-    slug = validate_agent_slug(agent_id, allow_default=True)
-    if slug in ("default", "vps-guardian"):
-        raise HTTPException(status_code=400, detail="Core profiles cannot be deleted")
+    slug = validate_agent_slug(agent_id, allow_default=False)
 
     # Immediately suppress in-flight telemetry probes from re-emitting this slug while SSH rmtree runs
     _recently_deleted_profiles[slug] = time.time() + DELETED_PROFILE_GRACE_SEC
@@ -759,7 +792,7 @@ async def delete_agent(agent_id: str):
     if not res["ok"]:
         _recently_deleted_profiles.pop(slug, None)
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to remove profile")
-    record_blackbox("default", "FLEET", "DECOMMISSION", f"Deleted profile '{slug}'", level="WARN")
+    record_blackbox("system", "FLEET", "DECOMMISSION", f"Deleted profile '{slug}'", level="WARN")
     asyncio.create_task(_broadcast_fresh_telemetry())
     return {"ok": True, "slug": slug}
 
@@ -773,18 +806,21 @@ from pathlib import Path
 
 h_home = Path.home() / '.hermes'
 targets = [
-    ('SOUL.md', 'default', 'markdown'),
-    ('USER.md', 'default', 'markdown'),
-    ('OPERATING_RULES.md', 'default', 'markdown'),
-    ('config.yaml', 'default', 'yaml'),
+    ('USER.md', 'operator', 'markdown'),
+    ('OPERATING_RULES.md', 'operator', 'markdown'),
+    ('config.yaml', 'operator', 'yaml'),
 ]
+excluded_core = {'default', 'vps-guardian'}
 p_root = h_home / 'profiles'
 if p_root.exists():
     for d in sorted(p_root.iterdir()):
-        if d.is_dir():
+        if d.is_dir() and d.name not in excluded_core:
             soul = d / 'SOUL.md'
             if soul.exists():
                 targets.append((f'profiles/{d.name}/SOUL.md', d.name, 'markdown'))
+            cfg = d / 'config.yaml'
+            if cfg.exists():
+                targets.append((f'profiles/{d.name}/config.yaml', d.name, 'yaml'))
 
 out = []
 for rel, agent_id, lang in targets:
@@ -797,7 +833,7 @@ for rel, agent_id, lang in targets:
         'id': 'live-' + rel.replace('/', '-').replace('.', '-'),
         'path': f'~/.hermes/{rel}',
         'folder': '~/.hermes/' if '/' not in rel else '~/.hermes/' + rel.rsplit('/', 1)[0] + '/',
-        'agentId': 'executor' if agent_id == 'default' else agent_id,
+        'agentId': agent_id,
         'language': lang,
         'updatedAt': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'),
         'content': content,
@@ -1079,16 +1115,170 @@ def _is_auth_error(status_code: int, data: Any) -> bool:
     return False
 
 
+async def _try_hermes_cli_chat(
+    agent_id: str,
+    message: str,
+    history: Optional[List[ChatHistoryItem]],
+    model: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Attempts to execute a one-shot turn via the real `hermes` CLI inside the isolated
+    profile `~/.hermes/profiles/<agent_id>` so dashboard-created agents can invoke real
+    Hermes skills and tools. Returns None cleanly if the CLI is unavailable or unsupported,
+    allowing chat_agent to fall back seamlessly to 9Router direct completion.
+    """
+    prompt_parts: List[str] = []
+    if history:
+        recent = history[-6:]
+        ctx_lines: List[str] = []
+        for item in recent:
+            txt = (item.content or "").strip()
+            if txt:
+                speaker = "Assistant" if item.role == "assistant" else "Operator"
+                ctx_lines.append(f"{speaker}: {txt[:800]}")
+        if ctx_lines:
+            prompt_parts.append("Recent conversation context:\n" + "\n".join(ctx_lines))
+    prompt_parts.append(f"Operator message:\n{message}")
+    combined_prompt = "\n\n".join(prompt_parts)
+
+    runner_tpl = r"""
+import json, os, re, shutil, subprocess
+from pathlib import Path
+
+slug = __SLUG__
+prompt = __PROMPT__
+model = __MODEL__
+
+home = Path.home()
+h_home = home / '.hermes'
+p_dir = (h_home / 'profiles' / slug).resolve()
+if not p_dir.is_dir():
+    print(json.dumps({'ok': False, 'reason': 'profile_missing'}))
+    raise SystemExit(0)
+
+# Ensure shared skills symlink exists for older profiles created before this upgrade
+shared_skills = h_home / 'skills'
+target_skills = p_dir / 'skills'
+if shared_skills.exists() and not target_skills.exists() and not target_skills.is_symlink():
+    try:
+        os.symlink(shared_skills, target_skills)
+    except Exception:
+        pass
+
+candidates = [
+    shutil.which('hermes'),
+    str(home / '.local' / 'bin' / 'hermes'),
+    '/usr/local/bin/hermes',
+    str(h_home / 'hermes-agent' / '.venv' / 'bin' / 'hermes'),
+    str(home / 'hermes-agent' / '.venv' / 'bin' / 'hermes'),
+]
+hermes_bin = next((c for c in candidates if c and os.path.isfile(c) and os.access(c, os.X_OK)), None)
+if not hermes_bin:
+    print(json.dumps({'ok': False, 'reason': 'hermes_bin_not_found'}))
+    raise SystemExit(0)
+
+help_text = ''
+try:
+    hp = subprocess.run([hermes_bin, 'chat', '--help'], capture_output=True, text=True, timeout=5)
+    help_text = (hp.stdout or '') + '\n' + (hp.stderr or '')
+except Exception:
+    pass
+
+argv = [hermes_bin]
+env = os.environ.copy()
+# Isolate profile runtime & explicitly blank Telegram tokens so bots are never disturbed
+env['HERMES_HOME'] = str(p_dir)
+env['HERMES_PROFILE'] = slug
+env['TELEGRAM_BOT_TOKEN'] = ''
+env['NO_COLOR'] = '1'
+
+if '--profile' in help_text:
+    argv.extend(['chat', '--profile', slug])
+else:
+    argv.extend(['chat'])
+
+if '-q' in help_text or '--query' in help_text:
+    argv.extend(['-q', prompt])
+elif '--prompt' in help_text:
+    argv.extend(['--prompt', prompt])
+else:
+    print(json.dumps({'ok': False, 'reason': 'unsupported_cli_flags'}))
+    raise SystemExit(0)
+
+if '--quiet' in help_text:
+    argv.append('--quiet')
+if model and model != 'combo-best' and ('--model' in help_text or '-m,' in help_text):
+    clean_model = model.split('/', 1)[-1].strip() if '9router /' in model.lower() else model
+    argv.extend(['--model', clean_model])
+
+try:
+    proc = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=70,
+        env=env,
+        cwd=str(p_dir),
+    )
+    ansi_re = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+    out = ansi_re.sub('', proc.stdout or '').strip()
+    err = ansi_re.sub('', proc.stderr or '').strip()
+    if proc.returncode == 0 and out:
+        print(json.dumps({'ok': True, 'reply': out, 'model': model}))
+    else:
+        print(json.dumps({'ok': False, 'reason': f'rc={proc.returncode}', 'stderr': err[:300]}))
+except Exception as exc:
+    print(json.dumps({'ok': False, 'reason': str(exc)[:200]}))
+"""
+    script = (
+        runner_tpl.replace("__SLUG__", json.dumps(agent_id))
+        .replace("__PROMPT__", json.dumps(combined_prompt))
+        .replace("__MODEL__", json.dumps(model))
+    )
+    res = await ssh_run_python(script, timeout=78.0)
+    if not res["ok"] or not res["stdout"]:
+        return None
+    try:
+        # Parse last JSON line in case anything preceded it
+        last_line = res["stdout"].splitlines()[-1].strip()
+        parsed = json.loads(last_line)
+        if parsed.get("ok") and parsed.get("reply"):
+            return parsed
+    except Exception:
+        return None
+    return None
+
+
 @app.post("/api/chat", dependencies=[Depends(verify_token)])
 async def chat_agent(req: ChatReq):
     global _preferred_router_key
-    agent_id = validate_agent_slug(req.agent_id, allow_default=True)
+    agent_id = validate_agent_slug(req.agent_id, allow_default=False)
+    if agent_id in EXCLUDED_CORE_PROFILES:
+        raise HTTPException(
+            status_code=403,
+            detail="Core Telegram agents (default & vps-guardian) are isolated from this dashboard",
+        )
     model = (req.model or "combo-best").strip() or "combo-best"
-    active_tasks[agent_id] = {"task": f"9ROUTER: {model}", "started": time.time()}
-    record_blackbox(agent_id, "9ROUTER", "INFERENCE", f"{model}: {req.message[:70]}")
+    active_tasks[agent_id] = {"task": f"HERMES RUNTIME: {model}", "started": time.time()}
+    record_blackbox(agent_id, "HERMES", "INFERENCE", f"{model}: {req.message[:70]}")
     t0 = time.perf_counter()
 
     try:
+        # 1. Try executing via real Hermes CLI first so profile gets full Hermes skills & tools
+        cli_res = await _try_hermes_cli_chat(agent_id, req.message, req.history, model)
+        if cli_res and cli_res.get("reply"):
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            return {
+                "ok": True,
+                "reply": str(cli_res["reply"]),
+                "model": str(cli_res.get("model") or model),
+                "latency_ms": latency_ms,
+                "runtime": "hermes-cli",
+                "tools_enabled": True,
+            }
+
+        # 2. Automatic fallback to 9Router direct completion if Hermes CLI is unavailable
+        active_tasks[agent_id] = {"task": f"9ROUTER: {model}", "started": time.time()}
         ctx = await _discover_chat_context(agent_id, force_refresh=False)
         soul_block = ctx.get("soul", "").strip()
         system_prompt = (
@@ -1139,7 +1329,6 @@ async def chat_agent(req: ChatReq):
                     if _is_auth_error(resp.status_code, data):
                         saw_auth_err = True
                         continue
-                    # Non-auth upstream error (e.g. model quota/timeout) — stop retrying keys
                     return False, err_msg, model, "", False
 
             return False, last_err, model, "", saw_auth_err
@@ -1147,7 +1336,6 @@ async def chat_agent(req: ChatReq):
         ok, result_text, used_model, winning_key, saw_auth_err = await _try_keys(ctx.get("keys", []))
 
         if not ok and saw_auth_err:
-            # Refresh key cache once in case API key was newly created or rotated in 9Router
             _preferred_router_key = ""
             fresh_ctx = await _discover_chat_context(agent_id, force_refresh=True)
             ok, result_text, used_model, winning_key, _ = await _try_keys(fresh_ctx.get("keys", []))
@@ -1161,7 +1349,14 @@ async def chat_agent(req: ChatReq):
 
         _preferred_router_key = winning_key
         latency_ms = int((time.perf_counter() - t0) * 1000)
-        return {"ok": True, "reply": result_text, "model": used_model, "latency_ms": latency_ms}
+        return {
+            "ok": True,
+            "reply": result_text,
+            "model": used_model,
+            "latency_ms": latency_ms,
+            "runtime": "9router-direct",
+            "tools_enabled": False,
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -1173,7 +1368,8 @@ async def chat_agent(req: ChatReq):
 
 @app.post("/api/voice/speak", dependencies=[Depends(verify_token)])
 async def voice_speak(req: VoiceReq):
-    agent_id = validate_agent_slug(req.agent_id, allow_default=True)
+    raw_id = (req.agent_id or "operator").strip().lower()
+    agent_id = "operator" if raw_id in EXCLUDED_CORE_PROFILES else validate_agent_slug(raw_id, allow_default=False)
     active_tasks[agent_id] = {"task": "VOICESTUDIO :3900", "started": time.time()}
     record_blackbox(agent_id, "VOICE", "TTS", req.text[:60])
     try:
@@ -1207,7 +1403,8 @@ async def voice_speak(req: VoiceReq):
 
 @app.post("/api/shell", dependencies=[Depends(verify_token)])
 async def run_shell(req: ShellReq):
-    agent_id = validate_agent_slug(req.agent_id, allow_default=True)
+    raw_id = (req.agent_id or "operator").strip().lower()
+    agent_id = "operator" if raw_id in EXCLUDED_CORE_PROFILES else validate_agent_slug(raw_id, allow_default=False)
     if not req.force and any(re.search(p, req.command, re.IGNORECASE) for p in DANGEROUS_PATTERNS):
         gid = str(uuid.uuid4())[:8]
         pending_approvals[gid] = {

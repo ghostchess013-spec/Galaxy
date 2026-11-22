@@ -99,8 +99,37 @@ import {
 } from './services/nexoraBridge';
 
 const STORAGE_KEY = 'nexora_mission_control_v3';
+const WORKSPACE_VERSION = 2;
 const DELETED_TOMBSTONE_KEY = 'galaxy_deleted_agents_v1';
 const DELETED_TOMBSTONE_TTL_MS = 25000;
+
+const ISOLATED_CORE_AGENT_KEYS = new Set(['default', 'vps-guardian', 'executor', 'guardian']);
+const LEGACY_SEED_AGENT_IDS = new Set([
+  'executor',
+  'research',
+  'developer',
+  'data',
+  'content',
+  'signal',
+  'design',
+  'ledger',
+  'studio',
+  'deal',
+  'guardian',
+  'travel',
+]);
+const LEGACY_SEED_MISSION_IDS = new Set(['m-1008', 'm-1009', 'm-1010', 'm-1011', 'm-1012']);
+const LEGACY_SEED_CRON_IDS = new Set(['cron-1', 'cron-2', 'cron-3', 'cron-4', 'cron-5', 'cron-6']);
+const LEGACY_SEED_CHAT_IDS = new Set(['c-1', 'c-2', 'c-3', 'c-4']);
+const LEGACY_SEED_LOG_IDS = new Set(['log-1', 'log-2', 'log-3', 'log-4', 'log-5']);
+const ISOLATED_CORE_FILE_IDS = new Set(['f-soul', 'f-guardian']);
+
+function isIsolatedCoreAgent(agent: Agent): boolean {
+  return (
+    ISOLATED_CORE_AGENT_KEYS.has(agent.id.toLowerCase()) ||
+    ISOLATED_CORE_AGENT_KEYS.has(agent.profileKey.toLowerCase())
+  );
+}
 
 function loadActiveDeletedTombstones(): Record<string, number> {
   try {
@@ -138,6 +167,7 @@ function saveDeletedTombstones(map: Record<string, number>): void {
 }
 
 interface PersistedState {
+  workspaceVersion?: number;
   agents: Agent[];
   missions: Mission[];
   chats: Record<string, ChatMessage[]>;
@@ -155,26 +185,71 @@ function loadInitialState(): PersistedState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) throw new Error('empty');
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
-    const filteredAgents = parsed.agents?.length
-      ? parsed.agents.filter(
-          (a) => !activeTombstones[a.id] && !activeTombstones[a.profileKey],
-        )
-      : INITIAL_AGENTS;
+    const needsCleanMigration = (parsed.workspaceVersion ?? 1) < WORKSPACE_VERSION;
+
+    const rawAgents = Array.isArray(parsed.agents) ? parsed.agents : INITIAL_AGENTS;
+    const filteredAgents = rawAgents.filter((a) => {
+      if (isIsolatedCoreAgent(a)) return false;
+      if (activeTombstones[a.id] || activeTombstones[a.profileKey]) return false;
+      if (needsCleanMigration && LEGACY_SEED_AGENT_IDS.has(a.id)) return false;
+      return true;
+    });
+
+    const rawMissions = Array.isArray(parsed.missions) ? parsed.missions : INITIAL_MISSIONS;
+    const filteredMissions = needsCleanMigration
+      ? rawMissions.filter((m) => !LEGACY_SEED_MISSION_IDS.has(m.id))
+      : rawMissions;
+
+    const rawCrons = Array.isArray(parsed.crons) ? parsed.crons : INITIAL_CRON_JOBS;
+    const filteredCrons = needsCleanMigration
+      ? rawCrons.filter((c) => !LEGACY_SEED_CRON_IDS.has(c.id))
+      : rawCrons;
+
+    const rawChats = parsed.chats ?? INITIAL_CHATS;
+    const allowedAgentIds = new Set(filteredAgents.map((a) => a.id));
+    const filteredChats: Record<string, ChatMessage[]> = {};
+    for (const [aid, msgs] of Object.entries(rawChats)) {
+      if (ISOLATED_CORE_AGENT_KEYS.has(aid.toLowerCase())) continue;
+      if (needsCleanMigration && !allowedAgentIds.has(aid)) continue;
+      const cleanedMsgs = Array.isArray(msgs)
+        ? msgs.filter((m) => !(needsCleanMigration && LEGACY_SEED_CHAT_IDS.has(m.id)))
+        : [];
+      if (cleanedMsgs.length > 0) {
+        filteredChats[aid] = cleanedMsgs;
+      }
+    }
+
+    const rawLogs = Array.isArray(parsed.interAgentLogs)
+      ? parsed.interAgentLogs
+      : INITIAL_INTER_AGENT_LOGS;
+    const filteredLogs = needsCleanMigration
+      ? rawLogs.filter((l) => !LEGACY_SEED_LOG_IDS.has(l.id))
+      : rawLogs;
+
+    const rawFiles = Array.isArray(parsed.files) && parsed.files.length > 0 ? parsed.files : INITIAL_FILES;
+    const filteredFiles = rawFiles.filter(
+      (f) =>
+        !ISOLATED_CORE_FILE_IDS.has(f.id) &&
+        f.path !== '~/.hermes/SOUL.md' &&
+        !f.path.startsWith('~/.hermes/profiles/vps-guardian/'),
+    );
+
     const savedLang: LanguageId =
       parsed.settings?.language === 'en' || parsed.settings?.language === 'id'
         ? parsed.settings.language
         : DEFAULT_SETTINGS.language;
-    return {
-      agents: filteredAgents.length ? filteredAgents : INITIAL_AGENTS,
-      missions: parsed.missions?.length ? parsed.missions : INITIAL_MISSIONS,
-      chats: parsed.chats ?? INITIAL_CHATS,
-      docs: parsed.docs?.length ? parsed.docs : INITIAL_DOCS,
-      crons: parsed.crons?.length ? parsed.crons : INITIAL_CRON_JOBS,
-      files: parsed.files?.length ? parsed.files : INITIAL_FILES,
+
+    const nextState: PersistedState = {
+      workspaceVersion: WORKSPACE_VERSION,
+      agents: filteredAgents,
+      missions: filteredMissions,
+      chats: filteredChats,
+      // Keep Docs library intact as requested
+      docs: Array.isArray(parsed.docs) && parsed.docs.length > 0 ? parsed.docs : INITIAL_DOCS,
+      crons: filteredCrons,
+      files: filteredFiles.length > 0 ? filteredFiles : INITIAL_FILES,
       integrations: parsed.integrations?.length ? parsed.integrations : INITIAL_INTEGRATIONS,
-      interAgentLogs: parsed.interAgentLogs?.length
-        ? parsed.interAgentLogs
-        : INITIAL_INTER_AGENT_LOGS,
+      interAgentLogs: filteredLogs,
       settings: {
         ...DEFAULT_SETTINGS,
         ...(parsed.settings ?? {}),
@@ -183,8 +258,19 @@ function loadInitialState(): PersistedState {
         bridgeToken: '',
       },
     };
+
+    if (needsCleanMigration) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      } catch {
+        // Ignore storage quota errors
+      }
+    }
+
+    return nextState;
   } catch {
     return {
+      workspaceVersion: WORKSPACE_VERSION,
       agents: INITIAL_AGENTS,
       missions: INITIAL_MISSIONS,
       chats: INITIAL_CHATS,
@@ -317,8 +403,10 @@ export default function App() {
   const i18nRef = useRef<I18nContextValue>(i18n);
   i18nRef.current = i18n;
 
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>('executor');
-  const [activeChatAgentId, setActiveChatAgentId] = useState<string>('executor');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    initial.agents[0]?.id ?? null,
+  );
+  const [activeChatAgentId, setActiveChatAgentId] = useState<string>(initial.agents[0]?.id ?? '');
   const [selectedDocId, setSelectedDocId] = useState<string | null>(initial.docs[0]?.id ?? null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(
     initial.files[0]?.id ?? null,
@@ -395,6 +483,7 @@ export default function App() {
   const flushWorkspaceSnapshotNow = useCallback((overrides?: Partial<PersistedState>) => {
     try {
       const payload: PersistedState = {
+        workspaceVersion: WORKSPACE_VERSION,
         agents: overrides?.agents ?? agentsRef.current,
         missions: overrides?.missions ?? missionsRef.current,
         chats: overrides?.chats ?? chatsRef.current,
@@ -664,6 +753,7 @@ export default function App() {
     const writeSnapshot = () => {
       try {
         const payload: PersistedState = {
+          workspaceVersion: WORKSPACE_VERSION,
           agents,
           missions,
           chats,
@@ -740,8 +830,8 @@ export default function App() {
     setMissions((prev) => [created, ...prev]);
     const isId = settingsRef.current.language === 'id';
     pushInterAgentLog(
-      'executor',
-      created.assignedAgentIds[1] ?? 'research',
+      'operator',
+      created.assignedAgentIds[0] ?? 'operator',
       `mission-${created.code.toLowerCase()}`,
       isId
         ? `Rencana untuk ${created.code} (${created.title}) disusun. Menunggu persetujuan Operator.`
@@ -768,8 +858,8 @@ export default function App() {
         ),
       );
       pushInterAgentLog(
-        'executor',
-        target.assignedAgentIds[1] ?? 'research',
+        'operator',
+        target.assignedAgentIds[0] ?? 'operator',
         `mission-${target.code.toLowerCase()}`,
         isId
           ? `Operator menyetujui ${target.code}. Langkah aktif mulai dijalankan.`
@@ -799,8 +889,8 @@ export default function App() {
     setSelectedDocId(doc.id);
     const isId = settingsRef.current.language === 'id';
     pushInterAgentLog(
-      'executor',
-      'content',
+      target.assignedAgentIds[0] ?? 'operator',
+      'operator',
       'docs-library',
       isId
         ? `Menyimpan hasil akhir "${doc.title}" (${doc.wordCount} kata) ke Pustaka Dokumen.`
@@ -848,9 +938,10 @@ export default function App() {
     setAgents(nextAgents);
     flushWorkspaceSnapshotNow({ agents: nextAgents });
     setSelectedAgentId(hired.id);
+    setActiveChatAgentId((cur) => cur || hired.id);
     const isId = settingsRef.current.language === 'id';
     pushInterAgentLog(
-      'executor',
+      'operator',
       hired.id,
       'agent-office',
       isId
@@ -884,14 +975,15 @@ export default function App() {
     setAgents(nextAgents);
     flushWorkspaceSnapshotNow({ agents: nextAgents });
     setSelectedAgentId(hired.id);
+    setActiveChatAgentId((cur) => cur || hired.id);
     const isId = settingsRef.current.language === 'id';
     pushInterAgentLog(
-      'executor',
+      'operator',
       hired.id,
       'agent-office',
       isId
-        ? `Membuat profil Hermes kustom ~/.hermes/profiles/${hired.profileKey} (${hired.buildingName}) beserta meja & kasur 1:1.`
-        : `Provisioned custom Hermes profile ~/.hermes/profiles/${hired.profileKey} (${hired.buildingName}) with 1:1 desk & bed.`,
+        ? `Membuat profil Hermes kustom ~/.hermes/profiles/${hired.profileKey} (${hired.buildingName}) beserta skill Hermes & meja 1:1.`
+        : `Provisioned custom Hermes profile ~/.hermes/profiles/${hired.profileKey} (${hired.buildingName}) with Hermes skills & 1:1 desk.`,
     );
 
     if (settings.bridgeMode === 'live' && hasBridgeAuth) {
@@ -913,7 +1005,7 @@ export default function App() {
     const target = agentsRef.current.find((a) => a.id === agentId);
     setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, avatarUrl } : a)));
     if (target && settingsRef.current.bridgeMode === 'live' && hasBridgeAuthRef.current) {
-      const slug = target.isHQ ? 'default' : target.profileKey;
+      const slug = target.profileKey;
       void updateBridgeAgentAvatar(
         settingsRef.current.bridgeUrl,
         sessionTokenRef.current,
@@ -955,18 +1047,19 @@ export default function App() {
       const nextChats = { ...chatsRef.current };
       delete nextChats[target.id];
 
+      const fallbackAgentId = nextAgents[0]?.id ?? null;
       setAgents(nextAgents);
       setChats(nextChats);
-      setSelectedAgentId((cur) => (cur === target.id ? 'executor' : cur));
-      setActiveChatAgentId((cur) => (cur === target.id ? 'executor' : cur));
+      setSelectedAgentId((cur) => (cur === target.id ? fallbackAgentId : cur));
+      setActiveChatAgentId((cur) => (cur === target.id ? fallbackAgentId ?? '' : cur));
 
       // Flush to localStorage synchronously right away (never wait 2.2s debounce) so refresh stays clean
       flushWorkspaceSnapshotNow({ agents: nextAgents, chats: nextChats });
 
       const isId = settingsRef.current.language === 'id';
       pushInterAgentLog(
-        'executor',
-        'guardian',
+        'operator',
+        target.id,
         'agent-office',
         isId
           ? `Menghapus agen ${target.name} (${target.buildingName}), meja kerja Lantai 1, dan kasur Lantai 2.`
@@ -1087,12 +1180,16 @@ export default function App() {
         }));
         setSendingChatAgentId(agent.id);
         void sendBridgeChat(settingsRef.current.bridgeUrl, sessionTokenRef.current, {
-          agent_id: agent.isHQ ? 'default' : agent.profileKey,
+          agent_id: agent.profileKey,
           message: trimmed,
           model: agent.model || 'combo-best',
           history: priorHistory,
         })
           .then((res) => {
+            const runtimeLabel =
+              res.runtime === 'hermes-cli' || res.tools_enabled
+                ? 'hermes-cli (skills & tools)'
+                : '9router :20128';
             const agentMsg: ChatMessage = {
               id: `cm-a-${Date.now() + 1}`,
               agentId: agent.id,
@@ -1101,7 +1198,7 @@ export default function App() {
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               modelUsed: res.model,
               latencyMs: res.latency_ms,
-              toolTrace: ['9router :20128', `profile:${agent.profileKey}`],
+              toolTrace: [runtimeLabel, `profile:${agent.profileKey}`],
             };
             setChats((prev) => ({
               ...prev,
@@ -1230,8 +1327,8 @@ export default function App() {
     );
     const isId = settingsRef.current.language === 'id';
     pushInterAgentLog(
-      'guardian',
-      'executor',
+      'system',
+      'operator',
       'fleet-telemetry',
       isId
         ? 'Pemindaian diagnostik 21-titik di hermesagent (100.72.221.36) selesai: 21 dari 21 lulus.'
@@ -1324,7 +1421,7 @@ export default function App() {
 
   const handleLiveVoiceExchange = async (agent: Agent, promptText: string) => {
     const chatRes = await sendBridgeChat(settings.bridgeUrl, sessionToken, {
-      agent_id: agent.isHQ ? 'default' : agent.profileKey,
+      agent_id: agent.profileKey,
       message: promptText,
       model: agent.model || 'combo-best',
     });
@@ -1332,7 +1429,7 @@ export default function App() {
     if (settings.autoSpeakReplies) {
       try {
         const tts = await speakViaBridge(settings.bridgeUrl, sessionToken, {
-          agent_id: agent.isHQ ? 'default' : agent.profileKey,
+          agent_id: agent.profileKey,
           text: chatRes.reply.slice(0, 600),
           voice: 'alloy',
         });
@@ -1359,7 +1456,8 @@ export default function App() {
     setIntegrations(INITIAL_INTEGRATIONS);
     setInterAgentLogs(INITIAL_INTER_AGENT_LOGS);
     setSettings((prev) => ({ ...DEFAULT_SETTINGS, language: prev.language }));
-    setSelectedAgentId('executor');
+    setSelectedAgentId(null);
+    setActiveChatAgentId('');
   };
 
   // Optional Dashboard PIN Lock screen
@@ -1779,6 +1877,7 @@ export default function App() {
                 settings={settings}
                 bridgeStatus={bridgeStatus}
                 onUpdateSettings={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
+                onOpenAddAgent={handleOpenAddAgent}
                 onLiveVoiceExchange={
                   bridgeStatus === 'live' ? handleLiveVoiceExchange : undefined
                 }
@@ -1794,6 +1893,7 @@ export default function App() {
                 sendingAgentId={sendingChatAgentId}
                 onSendMessage={handleSendChatMessage}
                 onClearThread={handleClearChatThread}
+                onOpenAddAgent={handleOpenAddAgent}
               />
             )}
 
@@ -1828,7 +1928,7 @@ export default function App() {
                     id: `doc-${Date.now()}`,
                     title,
                     category,
-                    authorAgentId: 'executor',
+                    authorAgentId: agents[0]?.id ?? 'operator',
                     updatedAt: i18n.t('commonJustNow'),
                     wordCount: content.trim().split(/\s+/).filter(Boolean).length,
                     content,
@@ -1865,7 +1965,7 @@ export default function App() {
                     const isId = settingsRef.current.language === 'id';
                     pushInterAgentLog(
                       target.agentId,
-                      'executor',
+                      'operator',
                       'standing-orders',
                       isId
                         ? `Menjalankan jadwal manual "${target.name}" (${target.command}) — kode keluar 0.`
@@ -1967,10 +2067,12 @@ export default function App() {
 
         <AskNexoraModal
           open={askOpen}
+          agents={agents}
           onClose={() => setAskOpen(false)}
           onLaunchMission={handleCreateMission}
           onQuickChat={handleSendChatMessage}
           onNavigate={setSection}
+          onOpenAddAgent={handleOpenAddAgent}
         />
 
         <AddAgentModal

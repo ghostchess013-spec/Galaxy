@@ -23,7 +23,7 @@ export default function ScheduleView({
   const { t, cronDisplay, agentDisplay } = useI18n();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
-  const [agentId, setAgentId] = useState(agents[0]?.id ?? 'executor');
+  const [agentId, setAgentId] = useState(agents[0]?.id ?? 'operator');
   const [cronExpr, setCronExpr] = useState('0 8 * * *');
   const [cadenceLabel, setCadenceLabel] = useState('');
   const [command, setCommand] = useState('');
@@ -109,11 +109,15 @@ export default function ScheduleView({
               onChange={(e) => setAgentId(e.target.value)}
               className="rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 text-xs text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
             >
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({agentDisplay(a).workstation})
-                </option>
-              ))}
+              {agents.length === 0 ? (
+                <option value="operator">{t('operatorRole')}</option>
+              ) : (
+                agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({agentDisplay(a).workstation})
+                  </option>
+                ))
+              )}
             </select>
             <input
               type="text"
@@ -170,70 +174,85 @@ export default function ScheduleView({
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--nx-border)] text-xs">
-              {crons.map((job) => {
-                const c = cronDisplay(job);
-                const owner = agents.find((a) => a.id === job.agentId)?.name ?? job.agentId;
-                return (
-                  <tr
-                    key={job.id}
-                    className="hover:bg-[var(--nx-surface-hover)]/50 transition-colors"
-                  >
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-[var(--nx-text)]">{c.name}</div>
-                      <div className="font-mono text-[11px] text-[var(--nx-text-subtle)] mt-0.5 truncate max-w-md">
-                        {job.command}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-[var(--nx-text-muted)] whitespace-nowrap">
-                      {owner}
-                    </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="text-[var(--nx-text)]">{c.cadenceLabel}</div>
-                      <div className="font-mono text-[10px] text-[var(--nx-text-subtle)]">
-                        {job.cronExpr}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 font-mono tabular-nums text-[var(--nx-text-muted)] whitespace-nowrap">
-                      {job.enabled ? c.nextRun : t('commonPaused')}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono tabular-nums text-[var(--nx-text-muted)] whitespace-nowrap">
-                      {c.lastRun}
-                    </td>
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <div className="inline-flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => onToggleCron(job.id)}
-                          className={`rounded-md border px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
-                            job.enabled
-                              ? 'border-[var(--nx-idle)]/40 text-[var(--nx-idle)]'
-                              : 'border-[var(--nx-border-strong)] text-[var(--nx-text-muted)]'
-                          }`}
-                        >
-                          {job.enabled ? t('commonActive') : t('commonPaused')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onRunCronNow(job.id)}
-                          aria-label={t('scheduleRunAria', { name: c.name })}
-                          className="inline-flex items-center gap-1 rounded-md border border-[var(--nx-border-strong)] px-2.5 py-1 text-[11px] text-[var(--nx-text)] hover:border-[var(--nx-accent)] cursor-pointer"
-                        >
-                          <Play className="h-3 w-3" />
-                          <span>{t('commonRun')}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteCron(job.id)}
-                          aria-label={t('scheduleDeleteAria', { name: c.name })}
-                          className="rounded-md p-1.5 text-[var(--nx-text-subtle)] hover:text-[var(--nx-alert)] cursor-pointer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {crons.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 px-4 text-center">
+                    <p className="text-sm font-medium text-[var(--nx-text)]">
+                      {t('scheduleEmptyTitle')}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--nx-text-muted)] max-w-md mx-auto">
+                      {t('scheduleEmptyDesc')}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                crons.map((job) => {
+                  const c = cronDisplay(job);
+                  const owner =
+                    agents.find((a) => a.id === job.agentId)?.name ??
+                    (job.agentId === 'operator' ? t('operatorRole') : job.agentId);
+                  return (
+                    <tr
+                      key={job.id}
+                      className="hover:bg-[var(--nx-surface-hover)]/50 transition-colors"
+                    >
+                      <td className="py-3.5 px-4">
+                        <div className="font-semibold text-[var(--nx-text)]">{c.name}</div>
+                        <div className="font-mono text-[11px] text-[var(--nx-text-subtle)] mt-0.5 truncate max-w-md">
+                          {job.command}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-[var(--nx-text-muted)] whitespace-nowrap">
+                        {owner}
+                      </td>
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="text-[var(--nx-text)]">{c.cadenceLabel}</div>
+                        <div className="font-mono text-[10px] text-[var(--nx-text-subtle)]">
+                          {job.cronExpr}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono tabular-nums text-[var(--nx-text-muted)] whitespace-nowrap">
+                        {job.enabled ? c.nextRun : t('commonPaused')}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono tabular-nums text-[var(--nx-text-muted)] whitespace-nowrap">
+                        {c.lastRun}
+                      </td>
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onToggleCron(job.id)}
+                            className={`rounded-md border px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
+                              job.enabled
+                                ? 'border-[var(--nx-idle)]/40 text-[var(--nx-idle)]'
+                                : 'border-[var(--nx-border-strong)] text-[var(--nx-text-muted)]'
+                            }`}
+                          >
+                            {job.enabled ? t('commonActive') : t('commonPaused')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onRunCronNow(job.id)}
+                            aria-label={t('scheduleRunAria', { name: c.name })}
+                            className="inline-flex items-center gap-1 rounded-md border border-[var(--nx-border-strong)] px-2.5 py-1 text-[11px] text-[var(--nx-text)] hover:border-[var(--nx-accent)] cursor-pointer"
+                          >
+                            <Play className="h-3 w-3" />
+                            <span>{t('commonRun')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteCron(job.id)}
+                            aria-label={t('scheduleDeleteAria', { name: c.name })}
+                            className="rounded-md p-1.5 text-[var(--nx-text-subtle)] hover:text-[var(--nx-alert)] cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

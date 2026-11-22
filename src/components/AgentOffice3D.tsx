@@ -1816,7 +1816,13 @@ const AgentOffice3D = memo(function AgentOffice3D({
       const selId = selectedRef.current;
       if (!onSelectedMoodChangeRef.current) return;
       const selRt = selId ? runtimes.find((r) => r.agentId === selId) : runtimes[0];
-      if (!selRt) return;
+      if (!selRt) {
+        if (lastSelectedMoodKey !== '') {
+          lastSelectedMoodKey = '';
+          onSelectedMoodChangeRef.current(null);
+        }
+        return;
+      }
       const nextKey = `${selRt.agentId}|${selRt.activity}|${selRt.moodEmoji}|${selRt.thought}|${selRt.currentFloor}`;
       if (nextKey === lastSelectedMoodKey) return;
       lastSelectedMoodKey = nextKey;

@@ -435,7 +435,11 @@ const AgentCityView = memo(function AgentCityView({
             <h1 className="font-editorial text-2xl sm:text-3xl leading-tight mt-0.5 text-[var(--nx-text)] whitespace-nowrap">
               {t('officeTitle')}{' '}
               <span className="italic text-[var(--nx-accent)]">
-                {workingCount > 0 ? t('officeTitleAlive') : t('officeTitleRelaxing')}
+                {agents.length === 0
+                  ? t('officeTitleEmpty')
+                  : workingCount > 0
+                    ? t('officeTitleAlive')
+                    : t('officeTitleRelaxing')}
               </span>
             </h1>
           </div>
@@ -535,7 +539,7 @@ const AgentCityView = memo(function AgentCityView({
               <span>{dockCollapsed ? t('officeShowControls') : t('officeHideControls')}</span>
             </button>
 
-            {!dockCollapsed && selectedAgent && selectedDisp && (
+            {!dockCollapsed && (
               <div className="pointer-events-auto w-full max-w-4xl rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)]/95 px-3.5 py-2.5 shadow-2xl space-y-2">
                 {/* Row 1: Floor View Switcher + Room Camera Presets */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--nx-border)]">
@@ -598,16 +602,18 @@ const AgentCityView = memo(function AgentCityView({
                       <Compass className="h-3 w-3" />
                       <span>{t('officeCamOverview')}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCameraPreset((prev) => ({ mode: 'focus', nonce: prev.nonce + 1 }))
-                      }
-                      className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
-                    >
-                      <Crosshair className="h-3 w-3" />
-                      <span>{t('officeCamFocus')}</span>
-                    </button>
+                    {selectedAgent && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCameraPreset((prev) => ({ mode: 'focus', nonce: prev.nonce + 1 }))
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)] whitespace-nowrap cursor-pointer"
+                      >
+                        <Crosshair className="h-3 w-3" />
+                        <span>{t('officeCamFocus')}</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -643,132 +649,193 @@ const AgentCityView = memo(function AgentCityView({
                   </div>
                 </div>
 
-                {/* Row 2: Selected Agent Identity + Live Thought + Actions */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAvatarError('');
-                        setPortraitModalOpen(true);
-                      }}
-                      title={t('officeChangePortraitTitle')}
-                      aria-label={t('officeChangePortraitAria', { name: selectedAgent.name })}
-                      className="group relative h-9 w-9 rounded-full overflow-hidden border border-[var(--nx-border-strong)] hover:border-[var(--nx-accent)] shrink-0 cursor-pointer"
-                    >
-                      <img
-                        src={selectedAgent.avatarUrl}
-                        alt={selectedAgent.name}
-                        referrerPolicy="no-referrer"
-                        className="h-full w-full object-cover object-top"
-                      />
-                      <span className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                        <Camera className="h-3.5 w-3.5" />
-                      </span>
-                    </button>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-semibold text-[var(--nx-text)] truncate">
-                          {selectedAgent.name}
-                        </span>
-                        <span className="text-xs text-[var(--nx-text-muted)]">·</span>
-                        <span className="text-xs text-[var(--nx-text-muted)] truncate">
-                          {selectedDisp.role}
-                        </span>
-                        <span className="font-mono text-[10px] rounded bg-[var(--nx-surface)] border border-[var(--nx-border)] px-1.5 py-0.5 text-[var(--nx-text-subtle)]">
-                          {floorPrefix}
-                          {selectedMood?.floor ?? 1}
-                        </span>
-                      </div>
-                      <p className="text-xs text-[var(--nx-text-subtle)] truncate max-w-xs xl:max-w-md">
-                        {selectedAgent.status === 'working'
-                          ? `💻 ${selectedDisp.task}`
-                          : selectedMood?.thought ?? selectedDisp.task}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Live Status Switcher + Chat / Brief / Delete */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <div
-                      className="flex items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-0.5"
-                      role="group"
-                      aria-label={t('officeSetStatusAria', { name: selectedAgent.name })}
-                    >
-                      {(['idle', 'working', 'alert'] as AgentStatus[]).map((st) => {
-                        const active = selectedAgent.status === st;
-                        return (
-                          <button
-                            key={st}
-                            type="button"
-                            onClick={() => onUpdateStatus(selectedAgent.id, st)}
-                            className={`rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                              active
-                                ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]'
-                                : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
-                            }`}
-                          >
-                            {statusLabel(st)}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setChatDrawerOpen(true)}
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap cursor-pointer ${
-                        chatDrawerOpen
-                          ? 'border-[var(--nx-accent)] bg-[var(--nx-accent-soft)] text-[var(--nx-accent)]'
-                          : 'border-[var(--nx-border-strong)] text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)]'
-                      }`}
-                    >
-                      <MessageSquare className="h-3.5 w-3.5" />
-                      <span>{t('officeBtnChat')}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={onOpenAsk}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-surface-hover)] px-2.5 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-accent)] hover:text-[var(--nx-accent-fg)] whitespace-nowrap transition-colors cursor-pointer"
-                    >
-                      <Rocket className="h-3.5 w-3.5" />
-                      <span>{t('officeBtnBrief')}</span>
-                    </button>
-
-                    {!selectedAgent.isHQ && selectedAgent.profileKey !== 'vps-guardian' && (
+                {/* Row 2: Selected Agent Identity OR Empty Office Ready Banner */}
+                {selectedAgent && selectedDisp ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <button
                         type="button"
-                        onClick={() => setDeleteConfirmAgent(selectedAgent)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-alert)]/40 px-2 py-1.5 text-xs font-medium text-[var(--nx-alert)] hover:bg-[var(--nx-alert)]/15 whitespace-nowrap transition-colors cursor-pointer"
-                        aria-label={t('officeDeleteAgentAria', { name: selectedAgent.name })}
-                        title={t('officeDeleteAgentAria', { name: selectedAgent.name })}
+                        onClick={() => {
+                          setAvatarError('');
+                          setPortraitModalOpen(true);
+                        }}
+                        title={t('officeChangePortraitTitle')}
+                        aria-label={t('officeChangePortraitAria', { name: selectedAgent.name })}
+                        className="group relative h-9 w-9 rounded-full overflow-hidden border border-[var(--nx-border-strong)] hover:border-[var(--nx-accent)] shrink-0 cursor-pointer"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <img
+                          src={selectedAgent.avatarUrl}
+                          alt={selectedAgent.name}
+                          referrerPolicy="no-referrer"
+                          className="h-full w-full object-cover object-top"
+                        />
+                        <span className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                          <Camera className="h-3.5 w-3.5" />
+                        </span>
                       </button>
-                    )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-semibold text-[var(--nx-text)] truncate">
+                            {selectedAgent.name}
+                          </span>
+                          <span className="text-xs text-[var(--nx-text-muted)]">·</span>
+                          <span className="text-xs text-[var(--nx-text-muted)] truncate">
+                            {selectedDisp.role}
+                          </span>
+                          <span className="font-mono text-[10px] rounded bg-[var(--nx-surface)] border border-[var(--nx-border)] px-1.5 py-0.5 text-[var(--nx-text-subtle)]">
+                            {floorPrefix}
+                            {selectedMood?.floor ?? 1}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[var(--nx-text-subtle)] truncate max-w-xs xl:max-w-md">
+                          {selectedAgent.status === 'working'
+                            ? `💻 ${selectedDisp.task}`
+                            : selectedMood?.thought ?? selectedDisp.task}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Live Status Switcher + Chat / Brief / Delete */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <div
+                        className="flex items-center gap-1 rounded-lg border border-[var(--nx-border)] bg-[var(--nx-surface)] p-0.5"
+                        role="group"
+                        aria-label={t('officeSetStatusAria', { name: selectedAgent.name })}
+                      >
+                        {(['idle', 'working', 'alert'] as AgentStatus[]).map((st) => {
+                          const active = selectedAgent.status === st;
+                          return (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => onUpdateStatus(selectedAgent.id, st)}
+                              className={`rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                                active
+                                  ? 'bg-[var(--nx-accent)] text-[var(--nx-accent-fg)]'
+                                  : 'text-[var(--nx-text-muted)] hover:text-[var(--nx-text)]'
+                              }`}
+                            >
+                              {statusLabel(st)}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setChatDrawerOpen(true)}
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap cursor-pointer ${
+                          chatDrawerOpen
+                            ? 'border-[var(--nx-accent)] bg-[var(--nx-accent-soft)] text-[var(--nx-accent)]'
+                            : 'border-[var(--nx-border-strong)] text-[var(--nx-text)] hover:bg-[var(--nx-surface-hover)]'
+                        }`}
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        <span>{t('officeBtnChat')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={onOpenAsk}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-surface-hover)] px-2.5 py-1.5 text-xs font-medium text-[var(--nx-text)] hover:bg-[var(--nx-accent)] hover:text-[var(--nx-accent-fg)] whitespace-nowrap transition-colors cursor-pointer"
+                      >
+                        <Rocket className="h-3.5 w-3.5" />
+                        <span>{t('officeBtnBrief')}</span>
+                      </button>
+
+                      {!selectedAgent.isHQ && selectedAgent.profileKey !== 'vps-guardian' && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmAgent(selectedAgent)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[var(--nx-alert)]/40 px-2 py-1.5 text-xs font-medium text-[var(--nx-alert)] hover:bg-[var(--nx-alert)]/15 whitespace-nowrap transition-colors cursor-pointer"
+                          aria-label={t('officeDeleteAgentAria', { name: selectedAgent.name })}
+                          title={t('officeDeleteAgentAria', { name: selectedAgent.name })}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[var(--nx-text)]">
+                        {t('officeEmptyTitle')}
+                      </p>
+                      <p className="text-[11px] text-[var(--nx-text-muted)]">
+                        {t('officeEmptyDesc')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onOpenAddAgent}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] whitespace-nowrap cursor-pointer"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      <span>{t('cockpitAddAgentBtn')}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
 
-        {/* Right: Isolated Memoized Live Chat Panel */}
-        {chatDrawerOpen && selectedAgent && (
-          <InOfficeChatPanel
-            agents={agents}
-            selectedAgent={selectedAgent}
-            selectedMood={selectedMood ?? undefined}
-            thread={activeThread}
-            isSending={isSendingToSelected}
-            onSelectAgent={onSelectAgent}
-            onSendMessage={onSendMessage}
-            onClearThread={onClearThread}
-            onOpenFullChat={onOpenChat}
-            onClose={handleCloseChat}
-          />
-        )}
+        {/* Right: Isolated Memoized Live Chat Panel (or Clean Empty State when 0 Agents) */}
+        {chatDrawerOpen &&
+          (selectedAgent ? (
+            <InOfficeChatPanel
+              agents={agents}
+              selectedAgent={selectedAgent}
+              selectedMood={selectedMood ?? undefined}
+              thread={activeThread}
+              isSending={isSendingToSelected}
+              onSelectAgent={onSelectAgent}
+              onSendMessage={onSendMessage}
+              onClearThread={onClearThread}
+              onOpenFullChat={onOpenChat}
+              onClose={handleCloseChat}
+            />
+          ) : (
+            <aside
+              aria-label={t('officeChatPanelAria')}
+              className="w-full lg:w-[370px] xl:w-[400px] shrink-0 h-[320px] lg:h-auto rounded-xl border border-[var(--nx-border-strong)] bg-[var(--nx-bg-elevated)] flex flex-col overflow-hidden"
+            >
+              <div className="border-b border-[var(--nx-border)] px-4 py-3 bg-[var(--nx-surface)]/55 flex items-center justify-between gap-2">
+                <p className="text-[10px] tracking-[0.14em] uppercase font-semibold text-[var(--nx-text-muted)]">
+                  {t('officeChatHeader', { count: 0 })}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCloseChat}
+                  title={t('officeChatHideTitle')}
+                  aria-label={t('officeChatHideTitle')}
+                  className="rounded-md p-1 text-[var(--nx-text-muted)] hover:bg-[var(--nx-surface-hover)] hover:text-[var(--nx-text)] cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+                <div className="h-12 w-12 rounded-full border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] flex items-center justify-center text-[var(--nx-accent)] mb-3">
+                  <MessageSquare className="h-5 w-5" />
+                </div>
+                <p className="font-editorial text-xl text-[var(--nx-text)]">
+                  {t('officeChatNoAgentsTitle')}
+                </p>
+                <p className="mt-1.5 text-xs text-[var(--nx-text-muted)] leading-relaxed max-w-xs">
+                  {t('officeChatNoAgentsDesc')}
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenAddAgent}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-4 py-2 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] transition-colors cursor-pointer"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  <span>{t('cockpitAddAgentBtn')}</span>
+                </button>
+              </div>
+            </aside>
+          ))}
       </div>
 
       {/* Quick Portrait Editor Modal for Any Active Agent */}

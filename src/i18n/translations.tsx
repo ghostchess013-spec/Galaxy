@@ -279,6 +279,7 @@ export const TRANSLATIONS = {
     cockpitCrewTitle: 'Your crew is',
     cockpitCrewWorking: 'working.',
     cockpitCrewRelaxing: 'relaxing.',
+    cockpitCrewReady: 'ready.',
     cockpitAddAgentBtn: 'Add Agent',
     cockpitOpenOfficeBtn: 'Open Full Office',
     cockpitKpiWorking: 'Working right now',
@@ -289,7 +290,7 @@ export const TRANSLATIONS = {
     cockpitKpiAvgReply: 'Average reply',
     cockpitKpiViaRouter: 'Via 9Router :20128',
     cockpitKpiTokens: 'Tokens this month',
-    cockpitKpiCrewTime: '40.7h active crew time',
+    cockpitKpiCrewTime: 'Active dashboard crew',
     cockpitHealthTitle: 'System Health',
     cockpitInspectBtn: 'Inspect',
     cockpitMachinePrefix: 'The machine is',
@@ -307,12 +308,15 @@ export const TRANSLATIONS = {
     cockpitApproveBtn: 'Approve plan',
     cockpitReviewBriefBtn: 'Review brief',
     cockpitNoBlockedTitle: 'No plans blocked on approval',
-    cockpitNoBlockedDesc: 'Launch a new mission whenever you want Executor to assemble a team.',
+    cockpitNoBlockedDesc: 'Launch a new mission whenever you want your crew to draft and execute a plan.',
     cockpitNewMissionBtn: 'New Mission',
     cockpitViewAllMissions: 'View All {count} Missions',
     cockpitRosterTitle: 'Fleet Roster',
     cockpitRosterAccent: 'at a glance.',
     cockpitRosterSub: '{count} specialists deployed · click any unit to message or inspect',
+    cockpitRosterEmptyTitle: 'No agents in this dashboard yet',
+    cockpitRosterEmptyDesc:
+      'Your 2 main Telegram agents remain completely isolated. Add new agents here dedicated to this dashboard.',
     cockpitManageOfficeBtn: 'Manage in Office',
     cockpitColSpecialist: 'Specialist',
     cockpitColWorkstation: 'Workstation',
@@ -323,6 +327,7 @@ export const TRANSLATIONS = {
     cockpitBusTitle: 'What they said',
     cockpitBusAccent: 'to each other.',
     cockpitBusSub: 'Live inter-agent dispatch bus',
+    cockpitBusEmpty: 'No inter-agent messages yet. Activity will appear once your agents collaborate.',
     cockpitFullLogBtn: 'Full Log',
 
     // Agent Office View (3D)
@@ -330,6 +335,13 @@ export const TRANSLATIONS = {
     officeTitle: 'Your office is',
     officeTitleAlive: 'alive.',
     officeTitleRelaxing: 'relaxing.',
+    officeTitleEmpty: 'ready.',
+    officeEmptyTitle: 'Your 3D Agent Office is empty & ready.',
+    officeEmptyDesc:
+      'Your 2 main Telegram agents stay isolated. Add a new agent to spawn their 1:1 Floor 1 desk and Floor 2 bed.',
+    officeChatNoAgentsTitle: 'No agents in office yet.',
+    officeChatNoAgentsDesc:
+      'Create your first dashboard agent to chat live while watching them work at their Floor 1 desk.',
     officeKpiDesksBeds: 'Desks & Beds (1:1)',
     officeKpiWorkingIdle: 'Working / Idle',
     officeKpiSessions7d: 'Sessions (7d)',
@@ -396,7 +408,7 @@ export const TRANSLATIONS = {
     addModalPortraitLabel: 'Agent Portrait (Preset or Upload Photo)',
     addModalUploadPhoto: 'Upload Photo',
     addModalProvisionInfo:
-      'Adds 1 dedicated Floor 1 desk & 1 Floor 2 bed ({workstation}) using {model}',
+      'Adds 1 Floor 1 desk & 1 Floor 2 bed ({workstation}) with Hermes skills & {model}',
     addModalAddPresetBtn: 'Add to Office',
     addModalCustomNameLabel: 'Agent Name *',
     addModalCustomNamePlaceholder: 'e.g. Alpha, Scout, DevOps',
@@ -414,7 +426,8 @@ export const TRANSLATIONS = {
     addModalCustomErrorName: 'Please enter an agent name.',
     addModalCustomErrorRole: 'Please describe the agent role or specialty.',
     addModalCustomPhotoError: 'Could not read image file. Please select a JPG, PNG, or WebP photo.',
-    addModalCustomFooterLive: 'Writes ~/.hermes/profiles/ & spawns 1:1 Floor 1 desk + Floor 2 bed.',
+    addModalCustomFooterLive:
+      'Creates ~/.hermes/profiles/ with shared Hermes skills & spawns 1:1 Floor 1 desk + Floor 2 bed (isolated from Telegram bots).',
     addModalCustomFooterDemo: 'Adds a 1:1 Floor 1 workstation & Floor 2 bed in your 3D Agent Office.',
     addModalCreateCustomBtn: 'Create Custom Agent',
 
@@ -435,22 +448,23 @@ export const TRANSLATIONS = {
     // Ask GALAXY Modal
     askEyebrow: 'GALAXY / Direct Command',
     askTitlePrefix: 'Brief',
-    askTitleAccent: 'Executor.',
+    askTitleAccent: 'GALAXY.',
     askCloseAria: 'Close Ask GALAXY dialog',
     askTabMission: 'Draft Mission Plan',
     askTabChat: 'Direct Chat',
     askSwitchVoice: 'Switch to Voice',
-    askInputAria: 'Goal or message for Executor',
+    askInputAria: 'Goal or message for GALAXY',
     askPlaceholderMission:
-      'Describe the outcome you want. Executor will assemble specialists and wait for your approval before running...',
+      'Describe the outcome you want. GALAXY will draft a step-by-step plan and wait for your approval before running...',
     askPlaceholderChat:
-      'Ask Executor anything about your Hermes fleet, VPS telemetry, or active missions...',
-    askErrorEmpty: 'Enter a goal or directive for Executor.',
+      'Send a direct message to your active dashboard agent...',
+    askErrorEmpty: 'Enter a goal or directive first.',
+    askNoAgentsNotice: 'Add at least one agent first before sending a direct chat.',
     askReportLength: 'Finished report length',
     askFootMission: 'Nothing runs without your approval on the plan.',
-    askFootChat: 'Routed to Executor HQ via 9Router (:20128).',
+    askFootChat: 'Routed to {name} via Hermes runtime & 9Router (:20128).',
     askBtnMission: 'Draft Plan',
-    askBtnChat: 'Send to Executor',
+    askBtnChat: 'Send Message',
 
     // Voice Mode View
     voiceEyebrow: 'GALAXY / Voice Mode',
@@ -495,6 +509,9 @@ export const TRANSLATIONS = {
     voiceInputAria: 'Speak or type prompt to {name}',
     voiceInputPlaceholder: 'Speak or type to {name}...',
     voiceSendAria: 'Send spoken prompt',
+    voiceNoAgentsTitle: 'No voice agents yet.',
+    voiceNoAgentsDesc:
+      'Your 2 main Telegram bots stay isolated. Add a new agent to this dashboard to start voice sessions.',
 
     // Chat View
     chatEyebrow: 'GALAXY / Chat',
@@ -503,7 +520,10 @@ export const TRANSLATIONS = {
     chatAgentsCount: '{count} agents available · full history persisted',
     chatForgetThread: 'Forget Thread',
     chatEmptyTitle: 'Start a session with',
-    chatRoutingNotice: 'Routing prompt via 9Router (:20128)...',
+    chatNoAgentsTitle: 'No agents in this dashboard yet.',
+    chatNoAgentsDesc:
+      'Your 2 main Telegram agents are intentionally kept separate. Create a new agent here to start chatting with Hermes skills & tools.',
+    chatRoutingNotice: 'Routing prompt via Hermes runtime & 9Router (:20128)...',
     chatInputAria: 'Message {name}',
     chatInputPlaceholder: 'Message {name} ({profile})...',
 
@@ -521,7 +541,7 @@ export const TRANSLATIONS = {
     missionsComposerPrefix: 'New Mission',
     missionsComposerAccent: 'Briefing.',
     missionsComposerDesc:
-      'Executor will select the specialists, draft a step-by-step plan, and pause for your approval.',
+      'Draft a step-by-step plan for your dashboard crew and pause for your approval before running.',
     missionsComposerCloseAria: 'Close new mission composer',
     missionsFieldTitle: 'Mission Title',
     missionsFieldTitlePlaceholder: 'e.g. Audit VPS Security & SSL Renewal',
@@ -531,7 +551,7 @@ export const TRANSLATIONS = {
     missionsFieldGoalPlaceholder:
       'Explain what outcome you want, which servers/files matter, and any guardrails...',
     missionsFormError: 'Please provide both a mission title and an objective.',
-    missionsSubmitBtn: 'Draft Plan with Executor',
+    missionsSubmitBtn: 'Draft Mission Plan',
     missionsColApproval: 'Awaiting Approval',
     missionsColApprovalSub: 'Nothing runs without your OK',
     missionsColProgress: 'In Progress',
@@ -544,7 +564,7 @@ export const TRANSLATIONS = {
     missionsCrewPrefix: 'Crew',
     missionsApproveBtn: 'Approve plan',
     missionsReviseBtn: 'Revise',
-    missionsRevisePlaceholder: 'Adjustment for Executor...',
+    missionsRevisePlaceholder: 'Adjustment note for the plan...',
     missionsCancelAria: 'Cancel mission {code}',
     missionsAdvanceBtn: 'Advance Active Step',
     missionsDeliverBtn: 'Accept & File Report to Docs',
@@ -597,6 +617,9 @@ export const TRANSLATIONS = {
     scheduleColControls: 'Controls',
     scheduleRunAria: 'Run {name} now',
     scheduleDeleteAria: 'Delete {name}',
+    scheduleEmptyTitle: 'No scheduled routines yet.',
+    scheduleEmptyDesc:
+      'Click New Standing Order above whenever you want to add an automated cron job on ~/.hermes/cron.',
 
     // Health View
     healthEyebrowLive: 'GALAXY / System Health · Live Bridge',
@@ -801,9 +824,9 @@ export const TRANSLATIONS = {
     settingsLockEnabled: 'Lock Enabled',
     settingsLockEnable: 'Enable Lock',
     settingsPinLabel: '4-Digit Access PIN',
-    settingsResetTitle: 'Restore Default Fleet Seed',
+    settingsResetTitle: 'Reset Dashboard Workspace',
     settingsResetDesc:
-      'Resets local missions, added agents, chats, and settings back to initial demo state.',
+      'Clears local missions, schedules, added agents, and chats while keeping the Docs library.',
     settingsResetBtn: 'Reset Workspace',
 
     // App dynamic runtime notices
@@ -943,6 +966,7 @@ export const TRANSLATIONS = {
     cockpitCrewTitle: 'Tim Anda sedang',
     cockpitCrewWorking: 'bekerja.',
     cockpitCrewRelaxing: 'bersantai.',
+    cockpitCrewReady: 'siap.',
     cockpitAddAgentBtn: 'Tambah Agen',
     cockpitOpenOfficeBtn: 'Buka Kantor Penuh',
     cockpitKpiWorking: 'Bekerja saat ini',
@@ -953,7 +977,7 @@ export const TRANSLATIONS = {
     cockpitKpiAvgReply: 'Rata-rata balas',
     cockpitKpiViaRouter: 'Lewat 9Router :20128',
     cockpitKpiTokens: 'Token bulan ini',
-    cockpitKpiCrewTime: '40,7 jam waktu aktif tim',
+    cockpitKpiCrewTime: 'Tim aktif dasbor ini',
     cockpitHealthTitle: 'Kesehatan Sistem',
     cockpitInspectBtn: 'Periksa',
     cockpitMachinePrefix: 'Kondisi mesin',
@@ -971,12 +995,15 @@ export const TRANSLATIONS = {
     cockpitApproveBtn: 'Setujui rencana',
     cockpitReviewBriefBtn: 'Tinjau ringkasan',
     cockpitNoBlockedTitle: 'Tidak ada rencana tertahan',
-    cockpitNoBlockedDesc: 'Mulai misi baru kapan saja agar Executor menyiapkan tim spesialis.',
+    cockpitNoBlockedDesc: 'Mulai misi baru kapan saja agar tim agen Anda menyusun dan menjalankan rencana.',
     cockpitNewMissionBtn: 'Misi Baru',
     cockpitViewAllMissions: 'Lihat Semua {count} Misi',
     cockpitRosterTitle: 'Daftar Armada',
     cockpitRosterAccent: 'sekilas.',
     cockpitRosterSub: '{count} spesialis aktif · klik unit mana pun untuk mengirim pesan',
+    cockpitRosterEmptyTitle: 'Belum ada agen di dasbor ini',
+    cockpitRosterEmptyDesc:
+      '2 agen Telegram utama Anda tetap terpisah total. Buat agen baru di sini khusus untuk dasbor ini.',
     cockpitManageOfficeBtn: 'Kelola di Kantor',
     cockpitColSpecialist: 'Spesialis',
     cockpitColWorkstation: 'Meja Kerja',
@@ -987,6 +1014,8 @@ export const TRANSLATIONS = {
     cockpitBusTitle: 'Percakapan antar',
     cockpitBusAccent: 'sesama agen.',
     cockpitBusSub: 'Alur koordinasi langsung antar-agen',
+    cockpitBusEmpty:
+      'Belum ada catatan antar-agen. Aktivitas akan muncul setelah agen baru Anda mulai berkolaborasi.',
     cockpitFullLogBtn: 'Catatan Lengkap',
 
     // Agent Office View (3D)
@@ -994,6 +1023,13 @@ export const TRANSLATIONS = {
     officeTitle: 'Kantor Anda sedang',
     officeTitleAlive: 'hidup.',
     officeTitleRelaxing: 'santai.',
+    officeTitleEmpty: 'siap.',
+    officeEmptyTitle: 'Kantor 3D Agen AI masih kosong & siap digunakan.',
+    officeEmptyDesc:
+      '2 agen Telegram utama Anda tetap terpisah. Tambah agen baru untuk menghadirkan 1 meja Lantai 1 dan 1 kasur Lantai 2.',
+    officeChatNoAgentsTitle: 'Belum ada agen di kantor.',
+    officeChatNoAgentsDesc:
+      'Buat agen pertama Anda di dasbor ini untuk mulai mengobrol langsung sambil melihat mereka bekerja di Lantai 1.',
     officeKpiDesksBeds: 'Meja & Kasur (1:1)',
     officeKpiWorkingIdle: 'Bekerja / Santai',
     officeKpiSessions7d: 'Sesi (7h)',
@@ -1060,7 +1096,7 @@ export const TRANSLATIONS = {
     addModalPortraitLabel: 'Potret Agen (Pilih Templat atau Unggah Foto)',
     addModalUploadPhoto: 'Unggah Foto',
     addModalProvisionInfo:
-      'Menambahkan 1 meja kerja Lantai 1 & 1 kasur Lantai 2 ({workstation}) dengan model {model}',
+      'Menambahkan 1 meja Lantai 1 & 1 kasur Lantai 2 ({workstation}) dengan skill Hermes & {model}',
     addModalAddPresetBtn: 'Tambahkan ke Kantor',
     addModalCustomNameLabel: 'Nama Agen *',
     addModalCustomNamePlaceholder: 'mis. Alpha, Peneliti, DevOps',
@@ -1079,7 +1115,7 @@ export const TRANSLATIONS = {
     addModalCustomErrorRole: 'Silakan jelaskan peran atau keahlian agen.',
     addModalCustomPhotoError: 'Gagal membaca berkas gambar. Pilih foto berformat JPG, PNG, atau WebP.',
     addModalCustomFooterLive:
-      'Menulis ~/.hermes/profiles/ & menambah 1 meja Lantai 1 + 1 kasur Lantai 2 secara 1:1.',
+      'Membuat ~/.hermes/profiles/ dengan skill Hermes bersama & menambah 1 meja Lantai 1 + 1 kasur Lantai 2 (terpisah dari bot Telegram).',
     addModalCustomFooterDemo:
       'Menambahkan 1 meja kerja Lantai 1 & 1 kasur Lantai 2 di Kantor 3D Agen AI Anda.',
     addModalCreateCustomBtn: 'Buat Agen Kustom',
@@ -1101,22 +1137,23 @@ export const TRANSLATIONS = {
     // Ask GALAXY Modal
     askEyebrow: 'GALAXY / Perintah Langsung',
     askTitlePrefix: 'Beri Arahan ke',
-    askTitleAccent: 'Executor.',
+    askTitleAccent: 'GALAXY.',
     askCloseAria: 'Tutup jendela Tanya GALAXY',
     askTabMission: 'Susun Rencana Misi',
     askTabChat: 'Obrolan Langsung',
     askSwitchVoice: 'Pindah ke Suara',
-    askInputAria: 'Tujuan atau pesan untuk Executor',
+    askInputAria: 'Tujuan atau pesan untuk GALAXY',
     askPlaceholderMission:
-      'Jelaskan hasil yang Anda inginkan. Executor akan memilih spesialis dan menunggu persetujuan Anda sebelum berjalan...',
+      'Jelaskan hasil yang Anda inginkan. GALAXY akan menyusun langkah kerja dan menunggu persetujuan Anda sebelum berjalan...',
     askPlaceholderChat:
-      'Tanyakan apa saja ke Executor tentang armada Hermes, telemetri VPS, atau misi yang sedang berjalan...',
-    askErrorEmpty: 'Masukkan tujuan atau instruksi untuk Executor.',
+      'Kirim pesan langsung ke agen aktif di dasbor Anda...',
+    askErrorEmpty: 'Masukkan tujuan atau instruksi terlebih dahulu.',
+    askNoAgentsNotice: 'Tambahkan minimal satu agen terlebih dahulu sebelum mengirim obrolan langsung.',
     askReportLength: 'Kedalaman laporan akhir',
     askFootMission: 'Tidak ada tugas yang berjalan tanpa persetujuan rencana dari Anda.',
-    askFootChat: 'Diteruskan ke Executor HQ melalui 9Router (:20128).',
+    askFootChat: 'Diteruskan ke {name} melalui runtime Hermes & 9Router (:20128).',
     askBtnMission: 'Susun Rencana',
-    askBtnChat: 'Kirim ke Executor',
+    askBtnChat: 'Kirim Pesan',
 
     // Voice Mode View
     voiceEyebrow: 'GALAXY / Mode Suara',
@@ -1161,6 +1198,9 @@ export const TRANSLATIONS = {
     voiceInputAria: 'Ucapkan atau ketik perintah untuk {name}',
     voiceInputPlaceholder: 'Ucapkan atau ketik ke {name}...',
     voiceSendAria: 'Kirim perintah suara',
+    voiceNoAgentsTitle: 'Belum ada agen suara.',
+    voiceNoAgentsDesc:
+      '2 agen Telegram utama Anda tetap terpisah. Tambahkan agen baru ke dasbor ini untuk memulai sesi suara.',
 
     // Chat View
     chatEyebrow: 'GALAXY / Obrolan',
@@ -1169,7 +1209,10 @@ export const TRANSLATIONS = {
     chatAgentsCount: '{count} agen tersedia · riwayat lengkap tersimpan',
     chatForgetThread: 'Hapus Riwayat',
     chatEmptyTitle: 'Mulai sesi obrolan dengan',
-    chatRoutingNotice: 'Meneruskan pesan lewat 9Router (:20128)...',
+    chatNoAgentsTitle: 'Belum ada agen di dasbor ini.',
+    chatNoAgentsDesc:
+      '2 agen Telegram utama sengaja dipisahkan. Buat agen baru di sini untuk mulai mengobrol dengan skill & perangkat Hermes.',
+    chatRoutingNotice: 'Meneruskan pesan lewat runtime Hermes & 9Router (:20128)...',
     chatInputAria: 'Kirim pesan ke {name}',
     chatInputPlaceholder: 'Kirim pesan ke {name} ({profile})...',
 
@@ -1188,7 +1231,7 @@ export const TRANSLATIONS = {
     missionsComposerPrefix: 'Pengarahan Misi',
     missionsComposerAccent: 'Baru.',
     missionsComposerDesc:
-      'Executor akan memilih spesialis, menyusun langkah kerja, dan menunggu persetujuan Anda.',
+      'Susun rencana langkah kerja untuk tim agen dasbor Anda dan jeda hingga Anda menyetujuinya.',
     missionsComposerCloseAria: 'Tutup formulir misi baru',
     missionsFieldTitle: 'Judul Misi',
     missionsFieldTitlePlaceholder: 'mis. Audit Keamanan VPS & Pembaruan SSL',
@@ -1198,7 +1241,7 @@ export const TRANSLATIONS = {
     missionsFieldGoalPlaceholder:
       'Jelaskan hasil yang diharapkan, server atau berkas terkait, serta batasan keamanannya...',
     missionsFormError: 'Mohon isi judul misi dan tujuannya terlebih dahulu.',
-    missionsSubmitBtn: 'Susun Rencana dengan Executor',
+    missionsSubmitBtn: 'Susun Rencana Misi',
     missionsColApproval: 'Menunggu Persetujuan',
     missionsColApprovalSub: 'Tidak berjalan tanpa izin Anda',
     missionsColProgress: 'Sedang Berjalan',
@@ -1211,7 +1254,7 @@ export const TRANSLATIONS = {
     missionsCrewPrefix: 'Tim',
     missionsApproveBtn: 'Setujui rencana',
     missionsReviseBtn: 'Revisi',
-    missionsRevisePlaceholder: 'Catatan penyesuaian untuk Executor...',
+    missionsRevisePlaceholder: 'Catatan penyesuaian untuk rencana...',
     missionsCancelAria: 'Batalkan misi {code}',
     missionsAdvanceBtn: 'Lanjutkan Langkah Aktif',
     missionsDeliverBtn: 'Terima & Simpan ke Dokumen',
@@ -1264,6 +1307,9 @@ export const TRANSLATIONS = {
     scheduleColControls: 'Kontrol',
     scheduleRunAria: 'Jalankan {name} sekarang',
     scheduleDeleteAria: 'Hapus {name}',
+    scheduleEmptyTitle: 'Belum ada jadwal rutin.',
+    scheduleEmptyDesc:
+      'Klik Tugas Berkala Baru di atas kapan saja untuk menambahkan jadwal cron otomatis di ~/.hermes/cron.',
 
     // Health View
     healthEyebrowLive: 'GALAXY / Kesehatan Sistem · Jembatan Aktif',
@@ -1470,9 +1516,9 @@ export const TRANSLATIONS = {
     settingsLockEnabled: 'Kunci Aktif',
     settingsLockEnable: 'Aktifkan Kunci',
     settingsPinLabel: 'PIN Akses 4 Digit',
-    settingsResetTitle: 'Pulihkan Data Awal Armada',
+    settingsResetTitle: 'Atur Ulang Ruang Kerja Dasbor',
     settingsResetDesc:
-      'Mengatur ulang misi lokal, agen tambahan, riwayat obrolan, dan pengaturan kembali ke bawaan demo.',
+      'Mengosongkan misi lokal, jadwal, agen tambahan, dan obrolan sambil tetap menyimpan Pustaka Dokumen.',
     settingsResetBtn: 'Atur Ulang Ruang Kerja',
 
     // App dynamic runtime notices

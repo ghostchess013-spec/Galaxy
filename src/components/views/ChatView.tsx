@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Paperclip, Send, Trash2, X } from 'lucide-react';
+import { MessageSquare, Paperclip, Send, Trash2, UserPlus, X } from 'lucide-react';
 import { useI18n } from '../../i18n/translations';
 import type { Agent, ChatMessage } from '../../types/nexora';
 
@@ -11,6 +11,7 @@ interface ChatViewProps {
   sendingAgentId?: string | null;
   onSendMessage: (agentId: string, content: string, attachmentName?: string) => void;
   onClearThread: (agentId: string) => void;
+  onOpenAddAgent: () => void;
 }
 
 export default function ChatView({
@@ -21,6 +22,7 @@ export default function ChatView({
   sendingAgentId,
   onSendMessage,
   onClearThread,
+  onOpenAddAgent,
 }: ChatViewProps) {
   const { t, statusLabel, agentDisplay, chatMessageDisplay } = useI18n();
   const [draft, setDraft] = useState('');
@@ -28,6 +30,34 @@ export default function ChatView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
+
+  if (!activeAgent) {
+    return (
+      <div className="rounded-xl border border-[var(--nx-border)] bg-[var(--nx-bg-elevated)] p-10 min-h-[460px] flex flex-col items-center justify-center text-center">
+        <div className="h-14 w-14 rounded-full border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] flex items-center justify-center text-[var(--nx-accent)] mb-4">
+          <MessageSquare className="h-6 w-6" />
+        </div>
+        <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--nx-text-muted)]">
+          {t('chatEyebrow')}
+        </p>
+        <h1 className="font-editorial text-3xl mt-1 text-[var(--nx-text)]">
+          {t('chatNoAgentsTitle')}
+        </h1>
+        <p className="mt-2 text-sm text-[var(--nx-text-muted)] max-w-md leading-relaxed">
+          {t('chatNoAgentsDesc')}
+        </p>
+        <button
+          type="button"
+          onClick={onOpenAddAgent}
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[var(--nx-accent)] px-4 py-2.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] transition-colors cursor-pointer"
+        >
+          <UserPlus className="h-4 w-4" />
+          <span>{t('cockpitAddAgentBtn')}</span>
+        </button>
+      </div>
+    );
+  }
+
   const activeDisp = agentDisplay(activeAgent);
   const thread = chats[activeAgent.id] ?? [];
 

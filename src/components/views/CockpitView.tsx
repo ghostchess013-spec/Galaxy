@@ -12,6 +12,7 @@ import type {
 } from '../../types/nexora';
 import { calculateHealthSummary } from '../../utils/nexoraLogic';
 import AgentOffice3D from '../AgentOffice3D';
+import GalaxyLogo from '../GalaxyLogo';
 import HealthDial from '../HealthDial';
 
 interface CockpitViewProps {
@@ -93,13 +94,17 @@ export default function CockpitView({
                 className="h-40 w-40 rounded-full border border-[var(--nx-accent)]/35 p-2 flex items-center justify-center"
                 style={{ boxShadow: '0 0 42px var(--nx-accent-glow)' }}
               >
-                <div className="h-full w-full overflow-hidden rounded-full border border-[var(--nx-border-strong)] bg-[var(--nx-surface)]">
-                  <img
-                    src={executor.avatarUrl}
-                    alt={executor.name}
-                    referrerPolicy="no-referrer"
-                    className="h-full w-full object-cover object-top"
-                  />
+                <div className="h-full w-full overflow-hidden rounded-full border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] flex items-center justify-center">
+                  {executor ? (
+                    <img
+                      src={executor.avatarUrl}
+                      alt={executor.name}
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover object-top"
+                    />
+                  ) : (
+                    <GalaxyLogo size={76} className="drop-shadow-[0_0_16px_rgba(249,92,25,0.35)]" />
+                  )}
                 </div>
               </div>
             </div>
@@ -168,9 +173,11 @@ export default function CockpitView({
                 <h1 className="font-editorial text-3xl leading-tight mt-1 text-[var(--nx-text)]">
                   {t('cockpitCrewTitle')}{' '}
                   <span className="italic text-[var(--nx-accent)]">
-                    {workingAgents.length > 0
-                      ? t('cockpitCrewWorking')
-                      : t('cockpitCrewRelaxing')}
+                    {agents.length === 0
+                      ? t('cockpitCrewReady')
+                      : workingAgents.length > 0
+                        ? t('cockpitCrewWorking')
+                        : t('cockpitCrewRelaxing')}
                   </span>
                 </h1>
               </div>
@@ -445,50 +452,71 @@ export default function CockpitView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--nx-border)] text-xs">
-                {agents.slice(0, 6).map((agent) => {
-                  const disp = agentDisplay(agent);
-                  return (
-                    <tr
-                      key={agent.id}
-                      className="hover:bg-[var(--nx-surface-hover)]/60 transition-colors"
-                    >
-                      <td className="py-2.5 pr-3">
-                        <div className="font-medium text-[var(--nx-text)]">{agent.name}</div>
-                        <div className="text-[11px] text-[var(--nx-text-subtle)]">{disp.role}</div>
-                      </td>
-                      <td className="py-2.5 px-3 text-[var(--nx-text-muted)] whitespace-nowrap">
-                        {disp.workstation}
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap">
-                        <span
-                          className="font-mono text-[11px] font-medium uppercase"
-                          style={{
-                            color:
-                              agent.status === 'alert'
-                                ? 'var(--nx-alert)'
-                                : agent.status === 'working'
-                                  ? 'var(--nx-working)'
-                                  : 'var(--nx-idle)',
-                          }}
-                        >
-                          {statusLabel(agent.status)}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-[var(--nx-text-muted)]">
-                        {agent.sessionsCount}
-                      </td>
-                      <td className="py-2.5 pl-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => onOpenChat(agent.id)}
-                          className="text-xs font-medium text-[var(--nx-text)] hover:text-[var(--nx-accent)] whitespace-nowrap cursor-pointer"
-                        >
-                          {t('cockpitMessageBtn')}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {agents.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center">
+                      <p className="text-sm font-medium text-[var(--nx-text)]">
+                        {t('cockpitRosterEmptyTitle')}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--nx-text-muted)] max-w-md mx-auto">
+                        {t('cockpitRosterEmptyDesc')}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={onOpenAddAgent}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--nx-accent)] px-3.5 py-1.5 text-xs font-semibold text-[var(--nx-accent-fg)] hover:bg-[var(--nx-accent-hover)] transition-colors cursor-pointer"
+                      >
+                        <UserPlus className="h-3.5 w-3.5" />
+                        <span>{t('cockpitAddAgentBtn')}</span>
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  agents.slice(0, 6).map((agent) => {
+                    const disp = agentDisplay(agent);
+                    return (
+                      <tr
+                        key={agent.id}
+                        className="hover:bg-[var(--nx-surface-hover)]/60 transition-colors"
+                      >
+                        <td className="py-2.5 pr-3">
+                          <div className="font-medium text-[var(--nx-text)]">{agent.name}</div>
+                          <div className="text-[11px] text-[var(--nx-text-subtle)]">{disp.role}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-[var(--nx-text-muted)] whitespace-nowrap">
+                          {disp.workstation}
+                        </td>
+                        <td className="py-2.5 px-3 whitespace-nowrap">
+                          <span
+                            className="font-mono text-[11px] font-medium uppercase"
+                            style={{
+                              color:
+                                agent.status === 'alert'
+                                  ? 'var(--nx-alert)'
+                                  : agent.status === 'working'
+                                    ? 'var(--nx-working)'
+                                    : 'var(--nx-idle)',
+                            }}
+                          >
+                            {statusLabel(agent.status)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono tabular-nums text-[var(--nx-text-muted)]">
+                          {agent.sessionsCount}
+                        </td>
+                        <td className="py-2.5 pl-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onOpenChat(agent.id)}
+                            className="text-xs font-medium text-[var(--nx-text)] hover:text-[var(--nx-accent)] whitespace-nowrap cursor-pointer"
+                          >
+                            {t('cockpitMessageBtn')}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -513,26 +541,32 @@ export default function CockpitView({
           </div>
 
           <div className="mt-3 space-y-3">
-            {interAgentLogs.slice(0, 4).map((entry) => {
-              const from = agents.find((a) => a.id === entry.fromAgentId)?.name ?? entry.fromAgentId;
-              const to = agents.find((a) => a.id === entry.toAgentId)?.name ?? entry.toAgentId;
-              return (
-                <div
-                  key={entry.id}
-                  className="border-b border-[var(--nx-border)] pb-3 last:border-b-0 last:pb-0"
-                >
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--nx-text-muted)]">
-                    <span className="font-medium text-[var(--nx-text)]">
-                      {from} → {to}
-                    </span>
-                    <span className="font-mono tabular-nums">{entry.timestamp}</span>
+            {interAgentLogs.length === 0 ? (
+              <p className="py-6 text-center text-xs text-[var(--nx-text-muted)] leading-relaxed">
+                {t('cockpitBusEmpty')}
+              </p>
+            ) : (
+              interAgentLogs.slice(0, 4).map((entry) => {
+                const from = agents.find((a) => a.id === entry.fromAgentId)?.name ?? entry.fromAgentId;
+                const to = agents.find((a) => a.id === entry.toAgentId)?.name ?? entry.toAgentId;
+                return (
+                  <div
+                    key={entry.id}
+                    className="border-b border-[var(--nx-border)] pb-3 last:border-b-0 last:pb-0"
+                  >
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--nx-text-muted)]">
+                      <span className="font-medium text-[var(--nx-text)]">
+                        {from} → {to}
+                      </span>
+                      <span className="font-mono tabular-nums">{entry.timestamp}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--nx-text-muted)] leading-relaxed">
+                      {logMessageDisplay(entry)}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-[var(--nx-text-muted)] leading-relaxed">
-                    {logMessageDisplay(entry)}
-                  </p>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </section>
       </div>

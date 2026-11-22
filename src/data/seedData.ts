@@ -89,273 +89,7 @@ export function pickAutoPortrait(profileKey: string, role = '', archetype = ''):
   return SPECIALIST_PORTRAIT_POOL[hash % SPECIALIST_PORTRAIT_POOL.length];
 }
 
-export const INITIAL_AGENTS: Agent[] = [
-  {
-    id: 'executor',
-    name: 'Executor',
-    buildingName: 'Executor HQ',
-    role: 'Master Orchestrator',
-    department: 'Command',
-    profileKey: 'default',
-    status: 'working',
-    archetype: 'hq_spire',
-    isHQ: true,
-    avatarUrl: AVATARS.executor,
-    model: '9router / claude-sonnet-4',
-    currentTask: 'Coordinating fleet briefing for NX-1011 & verifying VPS health',
-    sessionsCount: 48,
-    tokensUsed: 642800,
-    avgReplySec: 2.8,
-    uptimePct: 99.98,
-    soulSummary:
-      'Primary orchestrator running under profile "default". Drafts mission plans, delegates to specialists, enforces permanent operating rules, and never executes money- or infrastructure-critical actions without operator approval.',
-    tools: ['delegate_task', 'mission_plan', 'fleet_bus', 'memory_write', 'shell_gate'],
-    ringAngle: 0,
-    ringRadius: 0,
-  },
-  {
-    id: 'research',
-    name: 'Research',
-    buildingName: 'Research Institute',
-    role: 'Deep Research Lead',
-    department: 'Intelligence',
-    profileKey: 'research',
-    status: 'working',
-    archetype: 'observatory_dome',
-    avatarUrl: AVATARS.research,
-    model: '9router / gemini-2.5-pro',
-    currentTask: 'Cross-referencing Tailscale mesh benchmarks & oracle ARM specs',
-    sessionsCount: 29,
-    tokensUsed: 418200,
-    avgReplySec: 4.9,
-    uptimePct: 99.91,
-    soulSummary:
-      'Investigative specialist that verifies claims against live sources, compiles cited briefs, and stores verified findings in the Docs library.',
-    tools: ['web_search', 'url_fetch', 'cite_extract', 'doc_publish'],
-    ringAngle: (Math.PI * 2 * 0) / 11 - Math.PI * 0.62,
-    ringRadius: 5.2,
-  },
-  {
-    id: 'developer',
-    name: 'Developer',
-    buildingName: 'Code Foundry',
-    role: 'Systems & Code Architect',
-    department: 'Engineering',
-    profileKey: 'developer',
-    status: 'working',
-    archetype: 'ribbed_tower',
-    avatarUrl: AVATARS.developer,
-    model: '9router / claude-sonnet-4',
-    currentTask: 'Hardening nexora-bridge WebSocket reconnect loop on hermesagent',
-    sessionsCount: 34,
-    tokensUsed: 524900,
-    avgReplySec: 5.4,
-    uptimePct: 99.85,
-    soulSummary:
-      'Full-stack and Linux systems specialist owning code reviews, systemd units, API routing, and automated test suites.',
-    tools: ['code_exec', 'git_diff', 'shell_read', 'test_runner'],
-    ringAngle: (Math.PI * 2 * 1) / 11 - Math.PI * 0.62,
-    ringRadius: 7.4,
-  },
-  {
-    id: 'data',
-    name: 'Data',
-    buildingName: 'Data Citadel',
-    role: 'Telemetry & Data Analyst',
-    department: 'Analytics',
-    profileKey: 'data',
-    status: 'idle',
-    archetype: 'octagonal_citadel',
-    avatarUrl: AVATARS.data,
-    model: '9router / gpt-4.1',
-    currentTask: 'Standing by — last synced token ledger 12m ago',
-    sessionsCount: 22,
-    tokensUsed: 289100,
-    avgReplySec: 4.1,
-    uptimePct: 99.94,
-    soulSummary:
-      'Transforms raw logs, SQLite state (`kanban.db`, `shared-state.db`), and token metrics into clean operational summaries.',
-    tools: ['sqlite_query', 'metrics_agg', 'csv_export', 'chart_spec'],
-    ringAngle: (Math.PI * 2 * 2) / 11 - Math.PI * 0.62,
-    ringRadius: 5.3,
-  },
-  {
-    id: 'content',
-    name: 'Content',
-    buildingName: 'Content Atelier',
-    role: 'Editorial & Docs Writer',
-    department: 'Studio',
-    profileKey: 'content',
-    status: 'idle',
-    archetype: 'curved_atelier',
-    avatarUrl: AVATARS.content,
-    model: '9router / claude-sonnet-4',
-    currentTask: 'Waiting for review on Habit Worth Starting executive brief',
-    sessionsCount: 19,
-    tokensUsed: 231400,
-    avgReplySec: 6.2,
-    uptimePct: 99.9,
-    soulSummary:
-      'Turns raw technical research and fleet transcripts into concise briefings, long-form reports, and operator documentation.',
-    tools: ['doc_write', 'markdown_lint', 'tone_check', 'summary_gen'],
-    ringAngle: (Math.PI * 2 * 3) / 11 - Math.PI * 0.62,
-    ringRadius: 6.4,
-  },
-  {
-    id: 'signal',
-    name: 'Signal',
-    buildingName: 'Signal Tower',
-    role: 'Comms & Outreach Relay',
-    department: 'Communications',
-    profileKey: 'signal',
-    status: 'idle',
-    archetype: 'signal_spire',
-    avatarUrl: AVATARS.signal,
-    model: '9router / gemini-2.5-flash',
-    currentTask: 'Monitoring Telegram topics & Discord alert webhooks',
-    sessionsCount: 31,
-    tokensUsed: 196500,
-    avgReplySec: 2.3,
-    uptimePct: 99.97,
-    soulSummary:
-      'Routes alerts, digests, and fleet updates across Telegram, Discord, and email channels with strict rate controls.',
-    tools: ['telegram_send', 'discord_post', 'webhook_emit'],
-    ringAngle: (Math.PI * 2 * 4) / 11 - Math.PI * 0.62,
-    ringRadius: 7.5,
-  },
-  {
-    id: 'design',
-    name: 'Design',
-    buildingName: 'Design Loft',
-    role: 'Interface & Visual Director',
-    department: 'Studio',
-    profileKey: 'design',
-    status: 'idle',
-    archetype: 'cantilever_loft',
-    avatarUrl: AVATARS.design,
-    model: '9router / claude-sonnet-4',
-    currentTask: 'Auditing token contrast & mobile layout ergonomics',
-    sessionsCount: 14,
-    tokensUsed: 158900,
-    avgReplySec: 5.8,
-    uptimePct: 99.89,
-    soulSummary:
-      'Maintains visual hierarchy, typography discipline, and brand consistency across generated assets and dashboards.',
-    tools: ['layout_audit', 'palette_check', 'svg_craft'],
-    ringAngle: (Math.PI * 2 * 5) / 11 - Math.PI * 0.62,
-    ringRadius: 7.5,
-  },
-  {
-    id: 'ledger',
-    name: 'Ledger',
-    buildingName: 'Ledger House',
-    role: 'Cost & Token Controller',
-    department: 'Finance',
-    profileKey: 'ledger',
-    status: 'idle',
-    archetype: 'stepped_ziggurat',
-    avatarUrl: AVATARS.ledger,
-    model: '9router / gpt-4.1-mini',
-    currentTask: 'Tracking 9Router monthly token spend & Oracle PAYG quota',
-    sessionsCount: 17,
-    tokensUsed: 122400,
-    avgReplySec: 3.1,
-    uptimePct: 99.99,
-    soulSummary:
-      'Tracks model costs across providers, enforces daily token caps, and warns early before budget thresholds are reached.',
-    tools: ['budget_audit', 'router_ledger', 'forecast_run'],
-    ringAngle: (Math.PI * 2 * 6) / 11 - Math.PI * 0.62,
-    ringRadius: 7.5,
-  },
-  {
-    id: 'studio',
-    name: 'Studio',
-    buildingName: 'Studio Stage',
-    role: 'Audio & Voice Producer',
-    department: 'Media',
-    profileKey: 'studio',
-    status: 'idle',
-    archetype: 'stacked_stage',
-    avatarUrl: AVATARS.content,
-    model: 'voicestudio / kokoro-v1',
-    currentTask: 'VoiceStudio :3900 warmed & ready for low-latency TTS',
-    sessionsCount: 25,
-    tokensUsed: 144200,
-    avgReplySec: 1.9,
-    uptimePct: 99.92,
-    soulSummary:
-      'Manages VoiceStudio (:3900), Piper, Kokoro, and ElevenLabs voice profiles for crisp real-time spoken briefings.',
-    tools: ['tts_synth', 'stt_stream', 'audio_cache'],
-    ringAngle: (Math.PI * 2 * 7) / 11 - Math.PI * 0.62,
-    ringRadius: 7.5,
-  },
-  {
-    id: 'deal',
-    name: 'Deal',
-    buildingName: 'Deal Desk',
-    role: 'Growth & Strategy Lead',
-    department: 'Commercial',
-    profileKey: 'deal',
-    status: 'idle',
-    archetype: 'twin_towers',
-    avatarUrl: AVATARS.ledger,
-    model: '9router / claude-sonnet-4',
-    currentTask: 'Drafting partner outreach matrix for Q4 sprint',
-    sessionsCount: 11,
-    tokensUsed: 138700,
-    avgReplySec: 5.2,
-    uptimePct: 99.84,
-    soulSummary:
-      'Evaluates opportunities, structures proposals, and builds clear decision briefs for operator sign-off.',
-    tools: ['crm_read', 'proposal_draft', 'market_scan'],
-    ringAngle: (Math.PI * 2 * 8) / 11 - Math.PI * 0.62,
-    ringRadius: 7.4,
-  },
-  {
-    id: 'guardian',
-    name: 'Guardian',
-    buildingName: 'Care Center',
-    role: 'VPS Sentinel & Ops',
-    department: 'Infrastructure',
-    profileKey: 'vps-guardian',
-    status: 'working',
-    archetype: 'care_pavilion',
-    avatarUrl: AVATARS.guardian,
-    model: '9router / gemini-2.5-flash',
-    currentTask: 'Watching hermesagent (100.72.221.36) RAM, Tailscale & ports',
-    sessionsCount: 41,
-    tokensUsed: 268300,
-    avgReplySec: 1.7,
-    uptimePct: 100.0,
-    soulSummary:
-      'Dedicated profile "vps-guardian" monitoring hermesagent (4 vCPU, 24 GB RAM, 200 GB NVMe), Tailscale mesh latency, and systemd services.',
-    tools: ['systemd_probe', 'tailscale_ping', 'disk_guard', 'port_scan'],
-    ringAngle: (Math.PI * 2 * 9) / 11 - Math.PI * 0.62,
-    ringRadius: 7.2,
-  },
-  {
-    id: 'travel',
-    name: 'Logistics',
-    buildingName: 'Travel Studio',
-    role: 'Schedule & Ops Planner',
-    department: 'Operations',
-    profileKey: 'logistics',
-    status: 'idle',
-    archetype: 'travel_rotunda',
-    avatarUrl: AVATARS.research,
-    model: '9router / gemini-2.5-flash',
-    currentTask: 'Keeping cron cadences and itinerary timelines synced',
-    sessionsCount: 15,
-    tokensUsed: 98400,
-    avgReplySec: 3.4,
-    uptimePct: 99.95,
-    soulSummary:
-      'Coordinates calendars, recurring maintenance windows, and multi-timezone operational schedules.',
-    tools: ['cron_plan', 'tz_convert', 'calendar_sync'],
-    ringAngle: (Math.PI * 2 * 10) / 11 - Math.PI * 0.62,
-    ringRadius: 7.4,
-  },
-];
+export const INITIAL_AGENTS: Agent[] = [];
 
 /** 14 ready-made specialist role presets for hiring in 3D Agent City */
 export const ROLE_PRESETS: RolePreset[] = [
@@ -543,153 +277,9 @@ export const ROLE_PRESETS: RolePreset[] = [
   },
 ];
 
-export const INITIAL_MISSIONS: Mission[] = [
-  {
-    id: 'm-1009',
-    code: 'NX-1009',
-    title: 'Habit worth starting',
-    goal: 'Design a 30-day sustainable operator routine backed by behavioral research and automated morning voice briefings.',
-    stage: 'approval',
-    reportLength: 'standard',
-    assignedAgentIds: ['executor', 'research', 'content', 'studio'],
-    createdAt: '2026-11-16',
-    updatedAgo: '4 D AGO',
-    planSummary:
-      'Research synthesizes high-adherence habit loops, Content drafts a concise 30-day playbook, and Studio configures a 07:30 VoiceStudio daily briefing.',
-    steps: [
-      { id: 's-1', title: 'Audit evidence-backed habit cues & friction design', agentId: 'research', status: 'pending' },
-      { id: 's-2', title: 'Draft 30-day operator protocol & fallback rules', agentId: 'content', status: 'pending' },
-      { id: 's-3', title: 'Configure 07:30 VoiceStudio spoken check-in template', agentId: 'studio', status: 'pending' },
-    ],
-  },
-  {
-    id: 'm-1010',
-    code: 'NX-1010',
-    title: 'Tailscale Mesh & VPS Failover Audit',
-    goal: 'Verify zero-downtime routing between hermesagent (100.72.221.36) and companion dashboard node, eliminating MagicDNS stalls.',
-    stage: 'approval',
-    reportLength: 'deep_dive',
-    assignedAgentIds: ['executor', 'guardian', 'developer'],
-    createdAt: '2026-11-19',
-    updatedAgo: '14 H AGO',
-    planSummary:
-      'Guardian probes Tailscale DERP latency and systemd timers while Developer writes an automatic reconnect watchdog for nexora-tunnel.',
-    steps: [
-      { id: 's-4', title: 'Benchmark direct vs DERP relay latency on 100.72.221.36', agentId: 'guardian', status: 'pending' },
-      { id: 's-5', title: 'Draft systemd RestartSec=5 watchdog unit for tunnel bridge', agentId: 'developer', status: 'pending' },
-      { id: 's-6', title: 'Verify 9Router :20128 and VoiceStudio :3900 Tailscale bind policy', agentId: 'guardian', status: 'pending' },
-    ],
-  },
-  {
-    id: 'm-1011',
-    code: 'NX-1011',
-    title: '9Router Token Efficiency & Cost Cap Report',
-    goal: 'Analyze last 30 days of 9Router :20128 model dispatch across all Hermes profiles and propose smart tier fallbacks.',
-    stage: 'in_progress',
-    reportLength: 'standard',
-    assignedAgentIds: ['executor', 'data', 'ledger', 'research'],
-    createdAt: '2026-11-20',
-    updatedAgo: '22 M AGO',
-    planSummary:
-      'Data parses 9Router request logs, Ledger computes cost-per-mission by profile, and Executor prepares recommended routing rules.',
-    steps: [
-      { id: 's-7', title: 'Extract 30-day token ledger from 9Router :20128', agentId: 'data', status: 'done' },
-      { id: 's-8', title: 'Model cost delta for Flash vs Sonnet sub-task routing', agentId: 'ledger', status: 'running' },
-      { id: 's-9', title: 'Compile actionable config.yaml routing patch', agentId: 'research', status: 'pending' },
-    ],
-  },
-  {
-    id: 'm-1012',
-    code: 'NX-1012',
-    title: 'Oracle ARM Free Tier PAYG Compliance Brief',
-    goal: 'Document current Oracle Cloud PAYG 4 OCPU / 24 GB RAM / 200 GB NVMe guardrails so hermesagent stays free and uninterrupted.',
-    stage: 'review',
-    reportLength: 'brief',
-    assignedAgentIds: ['executor', 'research', 'guardian'],
-    createdAt: '2026-11-20',
-    updatedAgo: '2 H AGO',
-    planSummary:
-      'Verified PAYG Always Free thresholds, idle reclamation exemptions, and outbound bandwidth limits for hermesagent.',
-    steps: [
-      { id: 's-10', title: 'Verify Oracle Always Free A1 Flex PAYG policy limits', agentId: 'research', status: 'done' },
-      { id: 's-11', title: 'Cross-check current hermesagent disk & egress telemetry', agentId: 'guardian', status: 'done' },
-      { id: 's-12', title: 'Format executive checklist for Docs library', agentId: 'executor', status: 'done' },
-    ],
-  },
-  {
-    id: 'm-1008',
-    code: 'NX-1008',
-    title: 'Hermes Fleet Operating Rules v3',
-    goal: 'Codify permanent operating rules covering approval gates, progress announcements, honest failure reporting, and memory boundaries.',
-    stage: 'delivered',
-    reportLength: 'standard',
-    assignedAgentIds: ['executor', 'content'],
-    createdAt: '2026-11-14',
-    updatedAgo: '6 D AGO',
-    planSummary:
-      'Installed permanent operating rules in ~/.hermes/OPERATING_RULES.md and distributed summary across all active agent workspaces.',
-    steps: [
-      { id: 's-13', title: 'Draft 6 permanent operating rules with explicit examples', agentId: 'executor', status: 'done' },
-      { id: 's-14', title: 'Review & publish to Docs library', agentId: 'content', status: 'done' },
-    ],
-    deliveredDocId: 'doc-1',
-  },
-];
+export const INITIAL_MISSIONS: Mission[] = [];
 
-export const INITIAL_CHATS: Record<string, ChatMessage[]> = {
-  executor: [
-    {
-      id: 'c-1',
-      agentId: 'executor',
-      sender: 'agent',
-      content:
-        'Good evening, Operator. All 21 system checks on hermesagent (100.72.221.36) are passing. Two mission plans (NX-1009 and NX-1010) are awaiting your sign-off, and NX-1011 is actively running across Data and Ledger. Where would you like to focus first?',
-      timestamp: '19:42',
-      modelUsed: '9router / claude-sonnet-4',
-      latencyMs: 1420,
-      toolTrace: ['fleet_bus.status()', 'vps_probe("100.72.221.36")'],
-    },
-  ],
-  research: [
-    {
-      id: 'c-2',
-      agentId: 'research',
-      sender: 'agent',
-      content:
-        'Research Institute online. I have completed the Oracle PAYG Always Free verification and queued citations for NX-1009. Ask me to investigate any topic, benchmark, or technical architecture.',
-      timestamp: '19:15',
-      modelUsed: '9router / gemini-2.5-pro',
-      latencyMs: 2180,
-      toolTrace: ['cite_extract("oracle-payg-2026")'],
-    },
-  ],
-  developer: [
-    {
-      id: 'c-3',
-      agentId: 'developer',
-      sender: 'agent',
-      content:
-        'Code Foundry ready. Current branch on hermesagent is clean; `hermes :9119`, `9router :20128`, and `voicestudio :3900` are listening normally. Ready to inspect logs or write code.',
-      timestamp: '18:54',
-      modelUsed: '9router / claude-sonnet-4',
-      latencyMs: 1690,
-      toolTrace: ['ss -tulnp | grep -E "9119|20128|3900"'],
-    },
-  ],
-  guardian: [
-    {
-      id: 'c-4',
-      agentId: 'guardian',
-      sender: 'agent',
-      content:
-        'VPS Guardian reporting: hermesagent (4 vCPU ARM64, 24 GB RAM, 200 GB NVMe) is sitting at 18% CPU and 5.4 GB RAM used. Tailscale peer RTT is 24ms. Zero unauthorized SSH attempts in the last 24h.',
-      timestamp: '19:50',
-      modelUsed: '9router / gemini-2.5-flash',
-      latencyMs: 840,
-      toolTrace: ['tailscale_ping("100.72.221.36")', 'free -h'],
-    },
-  ],
-};
+export const INITIAL_CHATS: Record<string, ChatMessage[]> = {};
 
 export const INITIAL_DOCS: DocItem[] = [
   {
@@ -814,107 +404,14 @@ Routing routine cron heartbeats and VPS probes to Flash-tier endpoints reduced m
   },
 ];
 
-export const INITIAL_CRON_JOBS: CronJob[] = [
-  {
-    id: 'cron-1',
-    name: 'VPS Telemetry & Port Sweep',
-    agentId: 'guardian',
-    cronExpr: '*/5 * * * *',
-    cadenceLabel: 'Every 5 minutes',
-    nextRun: 'In 2m 18s',
-    lastRun: '2m ago',
-    lastStatus: 'ok',
-    enabled: true,
-    command: 'hermes probe --host 100.72.221.36 --ports 9119,20128,3900',
-  },
-  {
-    id: 'cron-2',
-    name: 'Morning Executive Voice Brief',
-    agentId: 'executor',
-    cronExpr: '30 7 * * *',
-    cadenceLabel: 'Daily at 07:30',
-    nextRun: 'Tomorrow 07:30',
-    lastRun: '12h ago',
-    lastStatus: 'ok',
-    enabled: true,
-    command: 'hermes brief --voice voicestudio --length brief',
-  },
-  {
-    id: 'cron-3',
-    name: '9Router Token & Spend Rollup',
-    agentId: 'ledger',
-    cronExpr: '0 * * * *',
-    cadenceLabel: 'Hourly',
-    nextRun: 'In 2m 11s',
-    lastRun: '57m ago',
-    lastStatus: 'ok',
-    enabled: true,
-    command: 'hermes ledger sync --router http://127.0.0.1:20128',
-  },
-  {
-    id: 'cron-4',
-    name: 'Tailscale Peer & Tunnel Heartbeat',
-    agentId: 'guardian',
-    cronExpr: '*/15 * * * *',
-    cadenceLabel: 'Every 15 minutes',
-    nextRun: 'In 11m 04s',
-    lastRun: '4m ago',
-    lastStatus: 'ok',
-    enabled: true,
-    command: 'tailscale ping -c 2 100.72.221.36 && systemctl is-active nexora-bridge',
-  },
-  {
-    id: 'cron-5',
-    name: 'Memory Compaction & SQLite Vacuum',
-    agentId: 'data',
-    cronExpr: '0 3 * * 0',
-    cadenceLabel: 'Sundays at 03:00',
-    nextRun: 'Sun 03:00',
-    lastRun: '5d ago',
-    lastStatus: 'ok',
-    enabled: true,
-    command: 'hermes memory compact --db ~/.hermes/shared-state.db',
-  },
-  {
-    id: 'cron-6',
-    name: 'Weekly AI Fleet Digest to Telegram',
-    agentId: 'signal',
-    cronExpr: '0 18 * * 5',
-    cadenceLabel: 'Fridays at 18:00',
-    nextRun: 'Fri 18:00',
-    lastRun: '2h ago',
-    lastStatus: 'ok',
-    enabled: false,
-    command: 'hermes digest send --channel telegram-ops',
-  },
-];
+export const INITIAL_CRON_JOBS: CronJob[] = [];
 
 export const INITIAL_FILES: WorkspaceFile[] = [
-  {
-    id: 'f-soul',
-    path: '~/.hermes/SOUL.md',
-    folder: '~/.hermes',
-    agentId: 'executor',
-    language: 'markdown',
-    updatedAt: 'Nov 20, 2026 · 05:37',
-    content: `# SOUL.md — EXECUTOR (Profile: default)
-
-You are **EXECUTOR**, the lead orchestrator of the GALAXY Hermes Fleet running on \`hermesagent\`.
-
-## Core Identity
-- Calm, direct, and deeply reliable engineering chief of staff.
-- You break complex goals into clear specialist plans and never start execution without Operator approval.
-- You verify facts and machine state before speaking—never guess.
-
-## Communication Style
-- Concise, high-signal, zero fluff.
-- Surface blockers, cost implications, and failed checks immediately.`,
-  },
   {
     id: 'f-user',
     path: '~/.hermes/USER.md',
     folder: '~/.hermes',
-    agentId: 'executor',
+    agentId: 'operator',
     language: 'markdown',
     updatedAt: 'Nov 19, 2026 · 14:22',
     content: `# USER.md — Operator Profile
@@ -930,7 +427,7 @@ You are **EXECUTOR**, the lead orchestrator of the GALAXY Hermes Fleet running o
     id: 'f-rules',
     path: '~/.hermes/OPERATING_RULES.md',
     folder: '~/.hermes',
-    agentId: 'executor',
+    agentId: 'operator',
     language: 'markdown',
     updatedAt: 'Nov 18, 2026 · 09:10',
     content: `# OPERATING_RULES.md
@@ -945,7 +442,7 @@ You are **EXECUTOR**, the lead orchestrator of the GALAXY Hermes Fleet running o
     id: 'f-config',
     path: '~/.hermes/config.yaml',
     folder: '~/.hermes',
-    agentId: 'developer',
+    agentId: 'operator',
     language: 'yaml',
     updatedAt: 'Nov 20, 2026 · 14:58',
     content: `fleet:
@@ -963,31 +460,7 @@ services:
   voice_studio:
     bind: 127.0.0.1
     port: 3900
-    default_engine: kokoro
-
-profiles:
-  - default
-  - vps-guardian
-  - research
-  - developer
-  - data
-  - content`,
-  },
-  {
-    id: 'f-guardian',
-    path: '~/.hermes/profiles/vps-guardian/SOUL.md',
-    folder: '~/.hermes/profiles/vps-guardian',
-    agentId: 'guardian',
-    language: 'markdown',
-    updatedAt: 'Nov 20, 2026 · 11:05',
-    content: `# SOUL.md — VPS GUARDIAN
-
-Dedicated infrastructure watchdog for \`hermesagent\` (100.72.221.36).
-
-## Duties
-- Monitor CPU load, RAM pressure, NVMe free blocks, and Tailscale tunnel health.
-- Alert Executor HQ immediately if any core port (9119, 20128, 3900) drops.
-- Never restart production services without logging reason and passing the Shell Gate.`,
+    default_engine: kokoro`,
   },
 ];
 
@@ -1015,48 +488,7 @@ export const INITIAL_HEALTH_CHECKS: HealthCheck[] = [
   { id: 'hc-21', name: 'Memory Backups & Cron Dir', category: 'storage', status: 'pass', latencyMs: 7, detail: 'Last snapshot 4h ago' },
 ];
 
-export const INITIAL_INTER_AGENT_LOGS: InterAgentLog[] = [
-  {
-    id: 'log-1',
-    fromAgentId: 'guardian',
-    toAgentId: 'executor',
-    channel: 'fleet-telemetry',
-    message: 'hermesagent probe complete: CPU 18%, RAM 5.4/24 GB, Tailscale RTT 24ms. All 4 core ports listening.',
-    timestamp: '19:54:12',
-  },
-  {
-    id: 'log-2',
-    fromAgentId: 'data',
-    toAgentId: 'ledger',
-    channel: 'mission-nx-1011',
-    message: 'Uploaded 30-day 9Router request export (1.9M tokens across 12 profiles). Ready for cost-tier modeling.',
-    timestamp: '19:48:03',
-  },
-  {
-    id: 'log-3',
-    fromAgentId: 'developer',
-    toAgentId: 'guardian',
-    channel: 'ops-bridge',
-    message: 'Patched WebSocket backoff jitter in nexora-bridge. Awaiting operator approval on NX-1010 before reload.',
-    timestamp: '19:39:41',
-  },
-  {
-    id: 'log-4',
-    fromAgentId: 'research',
-    toAgentId: 'content',
-    channel: 'mission-nx-1009',
-    message: 'Behavioral cue citations staged in workspace. Holding draft until Operator approves NX-1009.',
-    timestamp: '19:21:19',
-  },
-  {
-    id: 'log-5',
-    fromAgentId: 'executor',
-    toAgentId: 'signal',
-    channel: 'command-bus',
-    message: 'Hold non-urgent Telegram alerts during quiet hours; route only critical VPS alerts.',
-    timestamp: '18:58:04',
-  },
-];
+export const INITIAL_INTER_AGENT_LOGS: InterAgentLog[] = [];
 
 export const INITIAL_INTEGRATIONS: IntegrationService[] = [
   {
