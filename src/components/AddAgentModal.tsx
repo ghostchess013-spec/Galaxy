@@ -45,11 +45,11 @@ const WORKSTATION_STYLES: BuildingArchetype[] = [
 
 const MODEL_OPTIONS = [
   'combo-best',
-  '9router / claude-sonnet-4',
-  '9router / gemini-2.5-pro',
-  '9router / gemini-2.5-flash',
-  '9router / gpt-4.1',
-  '9router / gpt-4.1-mini',
+  'claude-sonnet-4',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gpt-4.1',
+  'gpt-4.1-mini',
 ];
 
 /**

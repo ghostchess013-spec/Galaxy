@@ -257,6 +257,16 @@ def validate_avatar_value(raw: Optional[str], strict: bool = True) -> str:
     return ""
 
 
+def normalize_router_model(raw: Optional[str]) -> str:
+    val = (raw or "").strip()
+    if not val or val.lower() == "default":
+        return "combo-best"
+    # Legacy UI preset labels like "9router / claude-sonnet-4" are not valid 9Router provider IDs
+    if re.match(r"^9router\s*/", val, re.IGNORECASE):
+        return "combo-best"
+    return val
+
+
 def validate_hermes_relpath(raw: str) -> str:
     cleaned = raw.strip()
     if cleaned.startswith("~/.hermes/"):
@@ -415,12 +425,15 @@ if p_root.exists():
             except Exception:
                 pass
         soul = (d / 'SOUL.md').read_text(errors='replace') if (d / 'SOUL.md').exists() else ''
+        raw_model = str(meta.get('model') or 'combo-best').strip()
+        if not raw_model or raw_model.lower().startswith('9router'):
+            raw_model = 'combo-best'
         profiles.append({
             'id': d.name,
             'name': meta.get('name') or d.name,
             'building_name': meta.get('building_name') or '',
             'role': meta['role'],
-            'model': meta['model'],
+            'model': raw_model,
             'arch': meta['arch'],
             'avatar': meta.get('avatar', ''),
             'soul': soul,
@@ -619,6 +632,7 @@ async def create_agent(req: CreateAgentReq):
             detail="Core Telegram profiles (default & vps-guardian) are reserved and isolated",
         )
     safe_avatar = validate_avatar_value(req.avatar, strict=False)
+    safe_model = normalize_router_model(req.model)
     display_name = (req.name or slug).strip()[:64] or slug
     building_name = (req.building_name or "").strip()[:80]
     soul = req.soul or f"# SOUL.md — {display_name}\nRole: {req.role}\n"
@@ -626,7 +640,7 @@ async def create_agent(req: CreateAgentReq):
         "name": display_name,
         "building_name": building_name,
         "role": req.role,
-        "model": req.model,
+        "model": safe_model,
         "arch": req.arch,
         "avatar": safe_avatar,
         "skills_linked": True,
@@ -1225,18 +1239,14 @@ try:
 except Exception:
     pass
 
-argv = [hermes_bin]
+argv = [hermes_bin, 'chat']
 env = os.environ.copy()
-# Isolate profile runtime & explicitly blank Telegram tokens so bots are never disturbed
+# Isolate profile runtime via HERMES_HOME=p_dir (do NOT pass --profile to avoid double-nested profiles/<slug>/profiles/<slug>)
+# and explicitly blank Telegram tokens so the user's Telegram bots are never disturbed
 env['HERMES_HOME'] = str(p_dir)
-env['HERMES_PROFILE'] = slug
+env.pop('HERMES_PROFILE', None)
 env['TELEGRAM_BOT_TOKEN'] = ''
 env['NO_COLOR'] = '1'
-
-if '--profile' in help_text:
-    argv.extend(['chat', '--profile', slug])
-else:
-    argv.extend(['chat'])
 
 if '-q' in help_text or '--query' in help_text:
     argv.extend(['-q', prompt])
@@ -1249,8 +1259,7 @@ else:
 if '--quiet' in help_text:
     argv.append('--quiet')
 if model and model != 'combo-best' and ('--model' in help_text or '-m,' in help_text):
-    clean_model = model.split('/', 1)[-1].strip() if '9router /' in model.lower() else model
-    argv.extend(['--model', clean_model])
+    argv.extend(['--model', model])
 
 try:
     proc = subprocess.run(
@@ -1278,13 +1287,15 @@ except Exception as exc:
     )
     res = await ssh_run_python(script, timeout=78.0)
     if not res["ok"] or not res["stdout"]:
+        record_blackbox(agent_id, "HERMES_CLI", "FALLBACK", (res.get("stderr") or "ssh_exec_failed")[:160])
         return None
     try:
-        # Parse last JSON line in case anything preceded it
         last_line = res["stdout"].splitlines()[-1].strip()
         parsed = json.loads(last_line)
         if parsed.get("ok") and parsed.get("reply"):
             return parsed
+        reason = parsed.get("stderr") or parsed.get("reason") or "cli_failed"
+        record_blackbox(agent_id, "HERMES_CLI", "FALLBACK", str(reason)[:160])
     except Exception:
         return None
     return None
@@ -1299,7 +1310,7 @@ async def chat_agent(req: ChatReq):
             status_code=403,
             detail="Core Telegram agents (default & vps-guardian) are isolated from this dashboard",
         )
-    model = (req.model or "combo-best").strip() or "combo-best"
+    model = normalize_router_model(req.model)
     active_tasks[agent_id] = {"task": f"HERMES RUNTIME: {model}", "started": time.time()}
     record_blackbox(agent_id, "HERMES", "INFERENCE", f"{model}: {req.message[:70]}")
     t0 = time.perf_counter()
@@ -1337,8 +1348,7 @@ async def chat_agent(req: ChatReq):
                     messages.append({"role": role, "content": content[:4000]})
         messages.append({"role": "user", "content": req.message})
 
-        async def _try_keys(candidate_keys: List[str]):
-            nonlocal model
+        async def _try_keys(candidate_keys: List[str], target_model: str):
             last_err = "No valid 9Router API key found"
             saw_auth_err = False
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -1351,7 +1361,7 @@ async def chat_agent(req: ChatReq):
                     resp = await client.post(
                         f"{UPSTREAM_ENDPOINTS['nine_router']}/v1/chat/completions",
                         headers=headers,
-                        json={"model": model, "messages": messages},
+                        json={"model": target_model, "messages": messages},
                     )
                     try:
                         data = resp.json()
@@ -1363,23 +1373,30 @@ async def chat_agent(req: ChatReq):
                         msg_obj = choice0.get("message", {}) if isinstance(choice0, dict) else {}
                         content = msg_obj.get("content")
                         if content is not None:
-                            return True, str(content), str(data.get("model", model)), api_key, False
+                            return True, str(content), str(data.get("model", target_model)), api_key, False
 
                     err_msg = _extract_router_error(data, resp.status_code, resp.text)
                     last_err = err_msg
                     if _is_auth_error(resp.status_code, data):
                         saw_auth_err = True
                         continue
-                    return False, err_msg, model, "", False
+                    return False, err_msg, target_model, "", False
 
-            return False, last_err, model, "", saw_auth_err
+            return False, last_err, target_model, "", saw_auth_err
 
-        ok, result_text, used_model, winning_key, saw_auth_err = await _try_keys(ctx.get("keys", []))
+        ok, result_text, used_model, winning_key, saw_auth_err = await _try_keys(ctx.get("keys", []), model)
 
         if not ok and saw_auth_err:
             _preferred_router_key = ""
             fresh_ctx = await _discover_chat_context(agent_id, force_refresh=True)
-            ok, result_text, used_model, winning_key, _ = await _try_keys(fresh_ctx.get("keys", []))
+            ctx = fresh_ctx
+            ok, result_text, used_model, winning_key, _ = await _try_keys(fresh_ctx.get("keys", []), model)
+
+        # If a custom model name has no active credentials/provider in 9Router, automatically retry with combo-best
+        if not ok and model != "combo-best":
+            model = "combo-best"
+            active_tasks[agent_id] = {"task": "9ROUTER: combo-best", "started": time.time()}
+            ok, result_text, used_model, winning_key, _ = await _try_keys(ctx.get("keys", []), "combo-best")
 
         if not ok:
             record_blackbox(agent_id, "9ROUTER", "ERROR", result_text[:180], level="ERROR")
