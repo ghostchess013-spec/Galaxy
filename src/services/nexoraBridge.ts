@@ -250,13 +250,21 @@ export async function createBridgeAgent(
   token: string,
   payload: {
     slug: string;
+    name?: string;
+    building_name?: string;
     role: string;
     model: string;
     arch: string;
     soul?: string;
     avatar?: string;
   },
-): Promise<{ ok: boolean; slug?: string }> {
+): Promise<{
+  ok: boolean;
+  slug?: string;
+  skills_linked?: boolean;
+  env_copied?: boolean;
+  config_copied?: boolean;
+}> {
   return bridgeJson(baseUrl, token, '/api/agents', { method: 'POST', body: payload });
 }
 
@@ -359,6 +367,7 @@ export function mergeBridgeTelemetry(
   currentChecks: HealthCheck[],
   showOnlyVpsAgents: boolean,
   excludedProfileKeys?: ReadonlySet<string>,
+  pendingCreatedKeys?: ReadonlySet<string>,
 ): {
   agents: Agent[];
   healthChecks: HealthCheck[];
@@ -387,13 +396,20 @@ export function mergeBridgeTelemetry(
       matchedRemoteIds.add(remote.id);
       updatedAgents.push({
         ...existing,
+        name: remote.name || existing.name,
+        buildingName: remote.building_name || existing.buildingName,
         status: mapRemoteStatus(remote.status),
         currentTask: remote.task || existing.currentTask,
         model: remote.model || existing.model,
         avatarUrl: remote.avatar || existing.avatarUrl,
         soulSummary: remote.soul ? remote.soul.slice(0, 220) : existing.soulSummary,
       });
-    } else if (!showOnlyVpsAgents) {
+    } else if (
+      !showOnlyVpsAgents ||
+      pendingCreatedKeys?.has(existing.profileKey) ||
+      pendingCreatedKeys?.has(existing.id)
+    ) {
+      // Keep locally created agents while POST /api/agents is still provisioning over SSH
       updatedAgents.push(existing);
     }
   }
@@ -403,7 +419,7 @@ export function mergeBridgeTelemetry(
     updatedAgents.push({
       id: `vps-${remote.id}`,
       name: remote.name,
-      buildingName: `${remote.name.replace(/-/g, ' ')} Desk`,
+      buildingName: remote.building_name || `${remote.name.replace(/-/g, ' ')} Desk`,
       role: remote.role || 'Hermes Specialist Agent',
       department: 'VPS Profile',
       profileKey: remote.id,

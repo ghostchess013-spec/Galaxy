@@ -131,3 +131,38 @@ test('mergeBridgeTelemetry suppresses tombstoned deleted profiles from stale in-
   assert.equal(hybrid.agents.some((a) => a.profileKey === 'alpha-trader'), false);
 });
 
+test('mergeBridgeTelemetry preserves newly created optimistic agents during in-flight SSH provisioning', () => {
+  const optimistic = {
+    id: 'new-scout',
+    name: 'New Scout',
+    buildingName: 'Scout Desk',
+    role: 'Researcher',
+    department: 'Ops',
+    profileKey: 'new-scout',
+    status: 'working' as const,
+    archetype: 'observatory_dome' as const,
+    avatarUrl: '/src/assets/images/avatar_research_1795234267421.jpg',
+    model: 'combo-best',
+    currentTask: 'Provisioning...',
+    sessionsCount: 1,
+    tokensUsed: 0,
+    avgReplySec: 2.5,
+    uptimePct: 100,
+    soulSummary: 'Scout',
+    tools: ['hermes_cli', 'hermes_skills'],
+    ringAngle: 0,
+    ringRadius: 7.4,
+  };
+  const emptyRemote: BridgeTelemetry = { ...SAMPLE_TELEMETRY, agents: [] };
+  const merged = mergeBridgeTelemetry(
+    emptyRemote,
+    [optimistic],
+    INITIAL_HEALTH_CHECKS,
+    true,
+    undefined,
+    new Set(['new-scout']),
+  );
+  assert.equal(merged.agents.length, 1);
+  assert.equal(merged.agents[0].profileKey, 'new-scout');
+});
+

@@ -424,10 +424,13 @@ export default function App() {
   const [bridgeError, setBridgeError] = useState<string>('');
   const [liveTelemetry, setLiveTelemetry] = useState<BridgeTelemetry | null>(null);
   const [sendingChatAgentId, setSendingChatAgentId] = useState<string | null>(null);
+  const [actionBanner, setActionBanner] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const bannerTimerRef = useRef<number | null>(null);
   const chatRevertTimersRef = useRef<Record<string, number>>({});
   const chatPrevStateRef = useRef<Record<string, { status: AgentStatus; currentTask: string }>>({});
   const chatWorkingLockRef = useRef<Record<string, { task: string; untilMs: number }>>({});
   const deletedAgentTombstonesRef = useRef<Record<string, number>>(loadActiveDeletedTombstones());
+  const pendingCreatedProfilesRef = useRef<Record<string, number>>({});
   const latestTelemetryRef = useRef<BridgeTelemetry | null>(null);
   const latestHealthChecksRef = useRef<HealthCheck[] | null>(null);
   const latestInterAgentLogsRef = useRef<InterAgentLog[] | null>(null);
@@ -478,6 +481,31 @@ export default function App() {
       saveDeletedTombstones(map);
     }
     return set;
+  }, []);
+
+  const getActivePendingCreatedProfileSet = useCallback((): Set<string> => {
+    const now = Date.now();
+    const map = pendingCreatedProfilesRef.current;
+    const set = new Set<string>();
+    for (const [key, exp] of Object.entries(map)) {
+      if (exp > now) {
+        set.add(key);
+      } else {
+        delete map[key];
+      }
+    }
+    return set;
+  }, []);
+
+  const showActionBanner = useCallback((kind: 'success' | 'error', text: string) => {
+    setActionBanner({ kind, text });
+    if (bannerTimerRef.current !== null) {
+      window.clearTimeout(bannerTimerRef.current);
+    }
+    bannerTimerRef.current = window.setTimeout(() => {
+      setActionBanner(null);
+      bannerTimerRef.current = null;
+    }, kind === 'error' ? 7500 : 4200);
   }, []);
 
   const flushWorkspaceSnapshotNow = useCallback((overrides?: Partial<PersistedState>) => {
@@ -645,12 +673,19 @@ export default function App() {
               startTransition(() => {
                 setAgents((prevAgents) => {
                   const excluded = getActiveExcludedProfileSet();
+                  const pendingCreated = getActivePendingCreatedProfileSet();
+                  for (const remote of snap.agents) {
+                    if (pendingCreated.has(remote.id)) {
+                      delete pendingCreatedProfilesRef.current[remote.id];
+                    }
+                  }
                   const merged = mergeBridgeTelemetry(
                     snap,
                     prevAgents,
                     INITIAL_HEALTH_CHECKS,
                     settings.showOnlyVpsAgents,
                     excluded,
+                    pendingCreated,
                   );
                   latestHealthChecksRef.current = merged.healthChecks;
                   if (merged.interAgentLogs.length > 0) {
@@ -733,6 +768,7 @@ export default function App() {
     hasBridgeAuth,
     bridgeAuthChecked,
     getActiveExcludedProfileSet,
+    getActivePendingCreatedProfileSet,
   ]);
 
   // Sync theme & language attributes on documentElement
@@ -935,6 +971,12 @@ export default function App() {
     delete deletedAgentTombstonesRef.current[hired.profileKey];
     saveDeletedTombstones(deletedAgentTombstonesRef.current);
 
+    if (settings.bridgeMode === 'live' && hasBridgeAuth) {
+      const graceUntil = Date.now() + 30_000;
+      pendingCreatedProfilesRef.current[hired.id] = graceUntil;
+      pendingCreatedProfilesRef.current[hired.profileKey] = graceUntil;
+    }
+
     setAgents(nextAgents);
     flushWorkspaceSnapshotNow({ agents: nextAgents });
     setSelectedAgentId(hired.id);
@@ -952,16 +994,66 @@ export default function App() {
     if (settings.bridgeMode === 'live' && hasBridgeAuth) {
       void createBridgeAgent(settings.bridgeUrl, sessionToken, {
         slug: hired.profileKey,
+        name: hired.name,
+        building_name: hired.buildingName,
         role: hired.role,
         model: hired.model,
         arch: hired.archetype,
         avatar: hired.avatarUrl,
         soul: `# SOUL.md — ${hired.name}\n\n${hired.soulSummary}\n`,
       })
-        .then(() => fetchBridgeStatus(settings.bridgeUrl, sessionToken))
-        .then((fresh) => setLiveTelemetry(fresh))
-        .catch(() => {
-          // Optimistic agent stays visible; next WS sync reconciles server state
+        .then(async () => {
+          const fresh = await fetchBridgeStatus(settings.bridgeUrl, sessionToken);
+          latestTelemetryRef.current = fresh;
+          setLiveTelemetry(fresh);
+          setAgents((prev) => {
+            const merged = mergeBridgeTelemetry(
+              fresh,
+              prev,
+              INITIAL_HEALTH_CHECKS,
+              settingsRef.current.showOnlyVpsAgents,
+              getActiveExcludedProfileSet(),
+              getActivePendingCreatedProfileSet(),
+            );
+            return agentsAreEquivalent(prev, merged.agents) ? prev : merged.agents;
+          });
+          delete pendingCreatedProfilesRef.current[hired.id];
+          delete pendingCreatedProfilesRef.current[hired.profileKey];
+          void fetchBridgeFiles(settings.bridgeUrl, sessionToken)
+            .then((fRes) => {
+              if (fRes.ok && fRes.files.length > 0) setFiles(fRes.files);
+            })
+            .catch(() => {});
+          showActionBanner(
+            'success',
+            isId
+              ? `Profil "${hired.name}" berhasil dibuat di Hermes beserta skill & tools.`
+              : `Profile "${hired.name}" created on Hermes with skills & tools.`,
+          );
+        })
+        .catch((err) => {
+          delete pendingCreatedProfilesRef.current[hired.id];
+          delete pendingCreatedProfilesRef.current[hired.profileKey];
+          const detail = err instanceof Error ? err.message : String(err);
+          setAgents((prev) => {
+            const rolled = prev.filter((a) => a.id !== hired.id && a.profileKey !== hired.profileKey);
+            flushWorkspaceSnapshotNow({ agents: rolled });
+            return rolled;
+          });
+          pushInterAgentLog(
+            'system',
+            'operator',
+            'agent-office',
+            isId
+              ? `Gagal membuat profil "${hired.name}" di Hermes: ${detail}`
+              : `Failed to create profile "${hired.name}" on Hermes: ${detail}`,
+          );
+          showActionBanner(
+            'error',
+            isId
+              ? `Gagal membuat profil "${hired.name}" di Hermes: ${detail}`
+              : `Failed to create "${hired.name}" on Hermes: ${detail}`,
+          );
         });
     }
   };
@@ -971,6 +1063,12 @@ export default function App() {
     delete deletedAgentTombstonesRef.current[hired.id];
     delete deletedAgentTombstonesRef.current[hired.profileKey];
     saveDeletedTombstones(deletedAgentTombstonesRef.current);
+
+    if (settings.bridgeMode === 'live' && hasBridgeAuth) {
+      const graceUntil = Date.now() + 30_000;
+      pendingCreatedProfilesRef.current[hired.id] = graceUntil;
+      pendingCreatedProfilesRef.current[hired.profileKey] = graceUntil;
+    }
 
     setAgents(nextAgents);
     flushWorkspaceSnapshotNow({ agents: nextAgents });
@@ -989,15 +1087,67 @@ export default function App() {
     if (settings.bridgeMode === 'live' && hasBridgeAuth) {
       void createBridgeAgent(settings.bridgeUrl, sessionToken, {
         slug: hired.profileKey,
+        name: hired.name,
+        building_name: hired.buildingName,
         role: hired.role,
         model: hired.model,
         arch: hired.archetype,
         avatar: hired.avatarUrl,
         soul: `# SOUL.md — ${hired.name}\n\n${hired.soulSummary}\n`,
       })
-        .then(() => fetchBridgeStatus(settings.bridgeUrl, sessionToken))
-        .then((fresh) => setLiveTelemetry(fresh))
-        .catch(() => {});
+        .then(async () => {
+          const fresh = await fetchBridgeStatus(settings.bridgeUrl, sessionToken);
+          latestTelemetryRef.current = fresh;
+          setLiveTelemetry(fresh);
+          setAgents((prev) => {
+            const merged = mergeBridgeTelemetry(
+              fresh,
+              prev,
+              INITIAL_HEALTH_CHECKS,
+              settingsRef.current.showOnlyVpsAgents,
+              getActiveExcludedProfileSet(),
+              getActivePendingCreatedProfileSet(),
+            );
+            return agentsAreEquivalent(prev, merged.agents) ? prev : merged.agents;
+          });
+          delete pendingCreatedProfilesRef.current[hired.id];
+          delete pendingCreatedProfilesRef.current[hired.profileKey];
+          void fetchBridgeFiles(settings.bridgeUrl, sessionToken)
+            .then((fRes) => {
+              if (fRes.ok && fRes.files.length > 0) setFiles(fRes.files);
+            })
+            .catch(() => {});
+          showActionBanner(
+            'success',
+            isId
+              ? `Profil kustom "${hired.name}" berhasil dibuat di Hermes beserta skill & tools.`
+              : `Custom profile "${hired.name}" created on Hermes with skills & tools.`,
+          );
+        })
+        .catch((err) => {
+          delete pendingCreatedProfilesRef.current[hired.id];
+          delete pendingCreatedProfilesRef.current[hired.profileKey];
+          const detail = err instanceof Error ? err.message : String(err);
+          setAgents((prev) => {
+            const rolled = prev.filter((a) => a.id !== hired.id && a.profileKey !== hired.profileKey);
+            flushWorkspaceSnapshotNow({ agents: rolled });
+            return rolled;
+          });
+          pushInterAgentLog(
+            'system',
+            'operator',
+            'agent-office',
+            isId
+              ? `Gagal membuat profil kustom "${hired.name}" di Hermes: ${detail}`
+              : `Failed to create custom profile "${hired.name}" on Hermes: ${detail}`,
+          );
+          showActionBanner(
+            'error',
+            isId
+              ? `Gagal membuat profil "${hired.name}" di Hermes: ${detail}`
+              : `Failed to create "${hired.name}" on Hermes: ${detail}`,
+          );
+        });
     }
   };
 
@@ -2082,6 +2232,33 @@ export default function App() {
           onAddFromPreset={handleHireSpecialist}
           onAddCustomAgent={handleCreateCustomAgent}
         />
+
+        {actionBanner && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`fixed bottom-5 right-5 z-50 flex max-w-md items-start gap-3 rounded-xl border px-4 py-3 text-xs shadow-2xl backdrop-blur-md ${
+              actionBanner.kind === 'error'
+                ? 'border-[var(--nx-alert)]/40 bg-[var(--nx-surface)] text-[var(--nx-text)]'
+                : 'border-[var(--nx-ok)]/40 bg-[var(--nx-surface)] text-[var(--nx-text)]'
+            }`}
+          >
+            <span
+              className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                actionBanner.kind === 'error' ? 'bg-[var(--nx-alert)]' : 'bg-[var(--nx-ok)]'
+              }`}
+            />
+            <p className="leading-relaxed">{actionBanner.text}</p>
+            <button
+              type="button"
+              onClick={() => setActionBanner(null)}
+              aria-label="Close notice"
+              className="ml-1 shrink-0 text-[var(--nx-text-muted)] hover:text-[var(--nx-text)] cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
+        )}
       </div>
     </I18nProvider>
   );

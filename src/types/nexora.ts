@@ -239,6 +239,7 @@ export interface BridgeBlackboxEntry {
 export interface BridgeRemoteAgent {
   id: string;
   name: string;
+  building_name?: string;
   role: string;
   model: string;
   arch: string;

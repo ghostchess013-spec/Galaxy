@@ -240,17 +240,21 @@ def validate_agent_slug(agent_id: str, allow_default: bool = False) -> str:
     return slug
 
 
-def validate_avatar_value(raw: Optional[str]) -> str:
+def validate_avatar_value(raw: Optional[str], strict: bool = True) -> str:
     if not raw:
         return ""
     val = raw.strip()
-    if len(val) > 150_000:
-        raise HTTPException(status_code=400, detail="Avatar payload exceeds 150 KB limit")
-    if re.match(r"^/src/assets/images/[a-zA-Z0-9._-]+\.(jpg|jpeg|png|webp)$", val):
+    if len(val) > 350_000:
+        if strict:
+            raise HTTPException(status_code=400, detail="Avatar payload exceeds 350 KB limit")
+        return ""
+    if re.match(r"^/(src/assets/images|assets)/[a-zA-Z0-9._-]+\.(jpg|jpeg|png|webp)$", val):
         return val
     if re.match(r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$", val):
         return val
-    raise HTTPException(status_code=400, detail="Unsupported avatar image format")
+    if strict:
+        raise HTTPException(status_code=400, detail="Unsupported avatar image format")
+    return ""
 
 
 def validate_hermes_relpath(raw: str) -> str:
@@ -398,6 +402,8 @@ if p_root.exists():
         if not d.is_dir() or d.name in excluded_core:
             continue
         meta = {
+            'name': d.name,
+            'building_name': '',
             'role': 'Hermes Specialist Agent',
             'model': 'combo-best',
             'arch': 'observatory_dome',
@@ -411,7 +417,8 @@ if p_root.exists():
         soul = (d / 'SOUL.md').read_text(errors='replace') if (d / 'SOUL.md').exists() else ''
         profiles.append({
             'id': d.name,
-            'name': d.name,
+            'name': meta.get('name') or d.name,
+            'building_name': meta.get('building_name') or '',
             'role': meta['role'],
             'model': meta['model'],
             'arch': meta['arch'],
@@ -508,6 +515,8 @@ async def collect_telemetry() -> Dict[str, Any]:
 
 class CreateAgentReq(BaseModel):
     slug: str
+    name: Optional[str] = None
+    building_name: Optional[str] = None
     role: str
     model: str = "combo-best"
     arch: str = "observatory_dome"
@@ -602,16 +611,20 @@ async def get_status():
 
 @app.post("/api/agents", dependencies=[Depends(verify_token)])
 async def create_agent(req: CreateAgentReq):
-    raw_slug = re.sub(r"[^a-z0-9\-]", "-", req.slug.lower().strip()).strip("-")
+    raw_slug = re.sub(r"[^a-z0-9\-]+", "-", req.slug.lower().strip()).strip("-")
     slug = validate_agent_slug(raw_slug, allow_default=False)
     if slug in EXCLUDED_CORE_PROFILES:
         raise HTTPException(
             status_code=403,
             detail="Core Telegram profiles (default & vps-guardian) are reserved and isolated",
         )
-    safe_avatar = validate_avatar_value(req.avatar)
-    soul = req.soul or f"# SOUL.md — {slug}\nRole: {req.role}\n"
+    safe_avatar = validate_avatar_value(req.avatar, strict=False)
+    display_name = (req.name or slug).strip()[:64] or slug
+    building_name = (req.building_name or "").strip()[:80]
+    soul = req.soul or f"# SOUL.md — {display_name}\nRole: {req.role}\n"
     meta = {
+        "name": display_name,
+        "building_name": building_name,
         "role": req.role,
         "model": req.model,
         "arch": req.arch,
@@ -623,31 +636,37 @@ async def create_agent(req: CreateAgentReq):
 import json, os, re
 from pathlib import Path
 
-slug = __SLUG__
-meta = __META__
-soul = __SOUL__
+payload = json.loads(__PAYLOAD_JSON__)
+slug = payload['slug']
+meta = payload['meta']
+soul = payload['soul']
 
 h_home = (Path.home() / '.hermes').resolve()
-root = (h_home / 'profiles').resolve()
+root = h_home / 'profiles'
+root.mkdir(parents=True, exist_ok=True)
+root = root.resolve()
 d = (root / slug).resolve()
-assert str(d).startswith(str(root) + '/')
+assert str(d).startswith(str(root) + '/'), f'Unsafe target path: {d}'
 d.mkdir(parents=True, exist_ok=True)
 (d / 'memories').mkdir(exist_ok=True)
 
 # 1. Inherit all installed Hermes skills via symlink so every dashboard agent has full skills access
 shared_skills = h_home / 'skills'
 target_skills = d / 'skills'
-if shared_skills.exists() and not target_skills.exists() and not target_skills.is_symlink():
+skills_linked = target_skills.exists() or target_skills.is_symlink()
+if shared_skills.exists() and not skills_linked:
     try:
         os.symlink(shared_skills, target_skills)
+        skills_linked = True
     except Exception:
-        pass
+        skills_linked = False
 
 # 2. Copy sanitized .env (LLM/tool API keys only — explicitly strip Telegram/Discord/bot tokens)
 src_env = h_home / '.env'
 dst_env = d / '.env'
+env_copied = dst_env.is_file()
 blocked_env_re = re.compile(r'^(export\s+)?(TELEGRAM|TG_|DISCORD|SLACK|WHATSAPP|MESSENGER|SIGNAL_|BOT_TOKEN|CHAT_ID|WEBHOOK|GATEWAY_TOKEN)', re.I)
-if src_env.is_file() and not dst_env.exists():
+if src_env.is_file() and not env_copied:
     kept = []
     for line in src_env.read_text(encoding='utf-8', errors='replace').splitlines():
         s = line.strip()
@@ -662,11 +681,13 @@ if src_env.is_file() and not dst_env.exists():
             os.chmod(dst_env, 0o600)
         except Exception:
             pass
+        env_copied = True
 
 # 3. Copy sanitized config.yaml (strips messaging/telegram sections so bots are never affected)
 src_cfg = h_home / 'config.yaml'
 dst_cfg = d / 'config.yaml'
-if src_cfg.is_file() and not dst_cfg.exists():
+config_copied = dst_cfg.is_file()
+if src_cfg.is_file() and not config_copied:
     raw_lines = src_cfg.read_text(encoding='utf-8', errors='replace').splitlines()
     out_lines = []
     skip_indent = None
@@ -688,22 +709,42 @@ if src_cfg.is_file() and not dst_cfg.exists():
             continue
         out_lines.append(line)
     dst_cfg.write_text('\n'.join(out_lines) + '\n', encoding='utf-8')
+    config_copied = True
 
 (d / 'nexora_meta.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
 (d / 'SOUL.md').write_text(soul, encoding='utf-8')
+assert (d / 'SOUL.md').is_file() and (d / 'nexora_meta.json').is_file()
+print(json.dumps({
+    'ok': True,
+    'slug': slug,
+    'path': str(d),
+    'skills_linked': skills_linked,
+    'env_copied': env_copied,
+    'config_copied': config_copied,
+}))
 """
-    py = (
-        provision_tpl.replace("__SLUG__", json.dumps(slug))
-        .replace("__META__", json.dumps(meta))
-        .replace("__SOUL__", json.dumps(soul))
-    )
-    res = await ssh_run_python(py, timeout=12.0)
+    encoded_payload = json.dumps(json.dumps({"slug": slug, "meta": meta, "soul": soul}))
+    py = provision_tpl.replace("__PAYLOAD_JSON__", encoded_payload)
+    res = await ssh_run_python(py, timeout=15.0)
     if not res["ok"]:
-        raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to create profile")
+        detail = res["stderr"] or res["stdout"] or "Failed to create profile on hermesagent"
+        record_blackbox(slug, "FLEET", "DEPLOY_ERROR", detail[:180], level="ERROR")
+        raise HTTPException(status_code=500, detail=detail)
     _recently_deleted_profiles.pop(slug, None)
+    details: Dict[str, Any] = {}
+    try:
+        details = json.loads(res["stdout"].splitlines()[-1]) if res["stdout"] else {}
+    except Exception:
+        details = {}
     record_blackbox(slug, "FLEET", "DEPLOY_AGENT", f"Created isolated profile '{slug}' with shared ~/.hermes/skills")
     asyncio.create_task(_broadcast_fresh_telemetry())
-    return {"ok": True, "slug": slug, "skills_linked": True}
+    return {
+        "ok": True,
+        "slug": slug,
+        "skills_linked": bool(details.get("skills_linked", False)),
+        "env_copied": bool(details.get("env_copied", False)),
+        "config_copied": bool(details.get("config_copied", False)),
+    }
 
 
 @app.put("/api/agents/{agent_id}/avatar", dependencies=[Depends(verify_token)])

@@ -53,7 +53,7 @@ export function hireSpecialist(
   const trimmedName = (customName ?? '').trim() || preset.name;
   const trimmedBuilding = (customBuilding ?? '').trim() || preset.buildingName;
   const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'agent';
-  const reserved = new Set(['default', 'vps-guardian']);
+  const reserved = new Set(['default', 'vps-guardian', 'executor', 'guardian']);
   let candidateId = reserved.has(baseSlug) ? `${baseSlug}-office` : baseSlug;
   let suffix = 2;
   while (reserved.has(candidateId) || agents.some((a) => a.id === candidateId || a.profileKey === candidateId)) {
@@ -112,7 +112,7 @@ export function createCustomAgent(
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') || 'agent';
-  const reserved = new Set(['default', 'vps-guardian']);
+  const reserved = new Set(['default', 'vps-guardian', 'executor', 'guardian']);
   let candidateId = reserved.has(baseSlug) ? `${baseSlug}-office` : baseSlug;
   let suffix = 2;
   while (reserved.has(candidateId) || agents.some((a) => a.id === candidateId || a.profileKey === candidateId)) {
