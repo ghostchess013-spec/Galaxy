@@ -2,7 +2,9 @@ import { useRef, useState } from 'react';
 import { Sparkles, Upload, UserPlus, Wrench, X } from 'lucide-react';
 import { AVATARS, PORTRAIT_GALLERY, ROLE_PRESETS } from '../data/seedData';
 import { useI18n } from '../i18n/translations';
+import type { BridgeModelOption } from '../services/nexoraBridge';
 import type { BuildingArchetype, RolePreset } from '../types/nexora';
+import AgentModelPicker from './AgentModelPicker';
 
 export interface CustomAgentDraft {
   name: string;
@@ -19,12 +21,17 @@ export interface CustomAgentDraft {
 interface AddAgentModalProps {
   open: boolean;
   isLiveBridge: boolean;
+  availableModels: BridgeModelOption[];
+  modelsSource?: '9router' | 'fallback';
+  loadingModels?: boolean;
+  onRefreshModels?: () => void;
   onClose: () => void;
   onAddFromPreset: (
     preset: RolePreset,
     customName?: string,
     customBuilding?: string,
     customAvatarUrl?: string,
+    customModel?: string,
   ) => void;
   onAddCustomAgent: (draft: CustomAgentDraft) => void;
 }
@@ -89,15 +96,21 @@ export function compressImageToPortraitDataUrl(file: File): Promise<string> {
 export default function AddAgentModal({
   open,
   isLiveBridge,
+  availableModels,
+  modelsSource = 'fallback',
+  loadingModels = false,
+  onRefreshModels,
   onClose,
   onAddFromPreset,
   onAddCustomAgent,
 }: AddAgentModalProps) {
   const { lang, t, presetDisplay, archetypeStyleLabel, portraitLabel } = useI18n();
+  const defaultModelId = availableModels[0]?.id || MODEL_OPTIONS[0];
   const [tab, setTab] = useState<'presets' | 'custom'>('presets');
   const [selectedPreset, setSelectedPreset] = useState<RolePreset>(ROLE_PRESETS[0]);
   const [presetCustomName, setPresetCustomName] = useState('');
   const [presetCustomStation, setPresetCustomStation] = useState('');
+  const [presetModel, setPresetModel] = useState(defaultModelId);
   const [presetAvatarUrl, setPresetAvatarUrl] = useState<string>(ROLE_PRESETS[0].avatarUrl);
   const [presetUploadErr, setPresetUploadErr] = useState('');
   const presetFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -106,7 +119,7 @@ export default function AddAgentModal({
   const [stationName, setStationName] = useState('');
   const [role, setRole] = useState('');
   const [department, setDepartment] = useState('');
-  const [model, setModel] = useState(MODEL_OPTIONS[0]);
+  const [model, setModel] = useState(defaultModelId);
   const [archetype, setArchetype] = useState<BuildingArchetype>('ribbed_tower');
   const [avatarUrl, setAvatarUrl] = useState<string>(AVATARS.developer);
   const [soulSummary, setSoulSummary] = useState('');
@@ -156,6 +169,7 @@ export default function AddAgentModal({
       presetCustomName.trim() || undefined,
       chosenStation,
       presetAvatarUrl,
+      presetModel,
     );
     setPresetCustomName('');
     setPresetCustomStation('');
@@ -350,6 +364,24 @@ export default function AddAgentModal({
                 </div>
               </div>
 
+              <div>
+                <label
+                  htmlFor="add-preset-model"
+                  className="block text-xs font-medium text-[var(--nx-text-muted)] mb-1"
+                >
+                  {t('addModalCustomModelLabel')}
+                </label>
+                <AgentModelPicker
+                  selectId="add-preset-model"
+                  value={presetModel}
+                  models={availableModels}
+                  modelsSource={modelsSource}
+                  loading={loadingModels}
+                  onChange={setPresetModel}
+                  onRefresh={onRefreshModels}
+                />
+              </div>
+
               {/* Preset Portrait Picker + Custom Photo Upload */}
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -416,7 +448,7 @@ export default function AddAgentModal({
                 <p className="text-xs text-[var(--nx-text-muted)]">
                   {t('addModalProvisionInfo', {
                     workstation: presetCustomStation.trim() || selectedPresetDisplay.workstation,
-                    model: selectedPreset.model,
+                    model: presetModel,
                   })}
                 </p>
                 <button
@@ -513,18 +545,15 @@ export default function AddAgentModal({
                 >
                   {t('addModalCustomModelLabel')}
                 </label>
-                <select
-                  id="custom-agent-model"
+                <AgentModelPicker
+                  selectId="custom-agent-model"
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 py-2 font-mono text-xs text-[var(--nx-text)] focus:border-[var(--nx-accent)] focus:outline-none"
-                >
-                  {MODEL_OPTIONS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                  models={availableModels}
+                  modelsSource={modelsSource}
+                  loading={loadingModels}
+                  onChange={setModel}
+                  onRefresh={onRefreshModels}
+                />
               </div>
 
               <div>

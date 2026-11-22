@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
 import { MessageSquare, Paperclip, Send, Trash2, UserPlus, X } from 'lucide-react';
 import { useI18n } from '../../i18n/translations';
+import type { BridgeModelOption } from '../../services/nexoraBridge';
 import type { Agent, ChatMessage } from '../../types/nexora';
+import AgentModelPicker from '../AgentModelPicker';
 
 interface ChatViewProps {
   agents: Agent[];
@@ -9,6 +11,10 @@ interface ChatViewProps {
   onSelectAgent: (id: string) => void;
   chats: Record<string, ChatMessage[]>;
   sendingAgentId?: string | null;
+  availableModels: BridgeModelOption[];
+  loadingModels?: boolean;
+  onRefreshModels?: () => void;
+  onUpdateModel: (agentId: string, model: string) => void;
   onSendMessage: (agentId: string, content: string, attachmentName?: string) => void;
   onClearThread: (agentId: string) => void;
   onOpenAddAgent: () => void;
@@ -20,6 +26,10 @@ export default function ChatView({
   onSelectAgent,
   chats,
   sendingAgentId,
+  availableModels,
+  loadingModels,
+  onRefreshModels,
+  onUpdateModel,
   onSendMessage,
   onClearThread,
   onOpenAddAgent,
@@ -142,16 +152,20 @@ export default function ChatView({
               className="h-10 w-10 rounded-full object-cover object-top border border-[var(--nx-border-strong)] shrink-0"
             />
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-sm font-semibold text-[var(--nx-text)] truncate">
                   {activeAgent.name} — {activeDisp.workstation}
                 </h2>
-                <span className="text-xs text-[var(--nx-text-muted)]">·</span>
-                <span className="font-mono text-[11px] text-[var(--nx-text-muted)]">
-                  {activeAgent.model}
-                </span>
+                <AgentModelPicker
+                  compact
+                  value={activeAgent.model}
+                  models={availableModels}
+                  loading={loadingModels}
+                  onChange={(nextModel) => onUpdateModel(activeAgent.id, nextModel)}
+                  onRefresh={onRefreshModels}
+                />
               </div>
-              <p className="text-xs text-[var(--nx-text-subtle)] truncate">
+              <p className="text-xs text-[var(--nx-text-subtle)] truncate mt-0.5">
                 {activeDisp.role} · {t('commonProfile')}: {activeAgent.profileKey}
               </p>
             </div>

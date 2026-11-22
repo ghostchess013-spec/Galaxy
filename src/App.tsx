@@ -80,11 +80,13 @@ import {
   searchWorkspace,
 } from './utils/nexoraLogic';
 import {
+  DEFAULT_ROUTER_MODELS,
   buildTelemetryWebSocketUrl,
   createBridgeAgent,
   deleteBridgeAgent,
   establishBridgeSession,
   fetchBridgeFiles,
+  fetchBridgeModels,
   fetchBridgeStatus,
   mergeBridgeTelemetry,
   parseAndScrubUrlToken,
@@ -96,6 +98,8 @@ import {
   sendBridgeChat,
   speakViaBridge,
   updateBridgeAgentAvatar,
+  updateBridgeAgentModel,
+  type BridgeModelOption,
 } from './services/nexoraBridge';
 
 const STORAGE_KEY = 'nexora_mission_control_v3';
@@ -423,6 +427,9 @@ export default function App() {
   const [bridgeStatus, setBridgeStatus] = useState<BridgeConnectionStatus>('demo');
   const [bridgeError, setBridgeError] = useState<string>('');
   const [liveTelemetry, setLiveTelemetry] = useState<BridgeTelemetry | null>(null);
+  const [availableModels, setAvailableModels] = useState<BridgeModelOption[]>(DEFAULT_ROUTER_MODELS);
+  const [modelsSource, setModelsSource] = useState<'9router' | 'fallback'>('fallback');
+  const [loadingModels, setLoadingModels] = useState<boolean>(false);
   const [sendingChatAgentId, setSendingChatAgentId] = useState<string | null>(null);
   const [actionBanner, setActionBanner] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const bannerTimerRef = useRef<number | null>(null);
@@ -507,6 +514,34 @@ export default function App() {
       bannerTimerRef.current = null;
     }, kind === 'error' ? 7500 : 4200);
   }, []);
+
+  const handleRefreshModels = useCallback(async (forceRefresh = true) => {
+    if (settingsRef.current.bridgeMode !== 'live' || !hasBridgeAuthRef.current) {
+      return;
+    }
+    setLoadingModels(true);
+    try {
+      const res = await fetchBridgeModels(
+        settingsRef.current.bridgeUrl,
+        sessionTokenRef.current,
+        forceRefresh,
+      );
+      if (res.ok && Array.isArray(res.models) && res.models.length > 0) {
+        setAvailableModels(res.models);
+        setModelsSource(res.source === '9router' ? '9router' : 'fallback');
+      }
+    } catch {
+      // Keep current model list if 9Router is temporarily unreachable
+    } finally {
+      setLoadingModels(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (settings.bridgeMode === 'live' && hasBridgeAuth && bridgeStatus === 'live') {
+      void handleRefreshModels(false);
+    }
+  }, [settings.bridgeMode, settings.bridgeUrl, hasBridgeAuth, bridgeStatus, handleRefreshModels]);
 
   const flushWorkspaceSnapshotNow = useCallback((overrides?: Partial<PersistedState>) => {
     try {
@@ -959,6 +994,7 @@ export default function App() {
     customName?: string,
     customBuilding?: string,
     customAvatarUrl?: string,
+    customModel?: string,
   ) => {
     const { agents: nextAgents, hired } = hireSpecialist(
       agents,
@@ -966,6 +1002,7 @@ export default function App() {
       customName,
       customBuilding,
       customAvatarUrl,
+      customModel,
     );
     delete deletedAgentTombstonesRef.current[hired.id];
     delete deletedAgentTombstonesRef.current[hired.profileKey];
@@ -1164,6 +1201,70 @@ export default function App() {
       ).catch(() => {});
     }
   }, []);
+
+  const handleUpdateAgentModel = useCallback(
+    (agentId: string, nextModelRaw: string) => {
+      const nextModel = nextModelRaw.trim();
+      if (!nextModel) return;
+      const target = agentsRef.current.find((a) => a.id === agentId);
+      if (!target || target.model === nextModel) return;
+      const prevModel = target.model;
+
+      setAgents((prev) => {
+        const next = prev.map((a) => (a.id === agentId ? { ...a, model: nextModel } : a));
+        flushWorkspaceSnapshotNow({ agents: next });
+        return next;
+      });
+
+      if (settingsRef.current.bridgeMode === 'live' && hasBridgeAuthRef.current) {
+        const slug = target.profileKey;
+        void updateBridgeAgentModel(
+          settingsRef.current.bridgeUrl,
+          sessionTokenRef.current,
+          slug,
+          nextModel,
+        )
+          .then(() => {
+            showActionBanner(
+              'success',
+              i18nRef.current.t('modelPickerUpdatedToast', {
+                name: target.name,
+                model: nextModel,
+              }),
+            );
+            void fetchBridgeFiles(settingsRef.current.bridgeUrl, sessionTokenRef.current)
+              .then((fRes) => {
+                if (fRes.ok && fRes.files.length > 0) setFiles(fRes.files);
+              })
+              .catch(() => {});
+          })
+          .catch((err) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            setAgents((prev) => {
+              const rolled = prev.map((a) => (a.id === agentId ? { ...a, model: prevModel } : a));
+              flushWorkspaceSnapshotNow({ agents: rolled });
+              return rolled;
+            });
+            showActionBanner(
+              'error',
+              i18nRef.current.t('modelPickerFailedToast', {
+                name: target.name,
+                detail,
+              }),
+            );
+          });
+      } else {
+        showActionBanner(
+          'success',
+          i18nRef.current.t('modelPickerUpdatedToast', {
+            name: target.name,
+            model: nextModel,
+          }),
+        );
+      }
+    },
+    [flushWorkspaceSnapshotNow, showActionBanner],
+  );
 
   const handleRetireSpecialist = useCallback(
     (agentId: string) => {
@@ -2009,9 +2110,15 @@ export default function App() {
                 theme={settings.theme}
                 chats={chats}
                 sendingAgentId={sendingChatAgentId}
+                availableModels={availableModels}
+                loadingModels={loadingModels}
+                onRefreshModels={
+                  bridgeStatus === 'live' ? () => void handleRefreshModels(true) : undefined
+                }
                 onSelectAgent={setSelectedAgentId}
                 onUpdateStatus={handleUpdateAgentStatus}
                 onUpdateAvatar={handleUpdateAgentAvatar}
+                onUpdateModel={handleUpdateAgentModel}
                 onOpenAddAgent={handleOpenAddAgent}
                 onRetireSpecialist={handleRetireSpecialist}
                 onOpenChat={handleOpenChat}
@@ -2041,6 +2148,12 @@ export default function App() {
                 onSelectAgent={setActiveChatAgentId}
                 chats={chats}
                 sendingAgentId={sendingChatAgentId}
+                availableModels={availableModels}
+                loadingModels={loadingModels}
+                onRefreshModels={
+                  bridgeStatus === 'live' ? () => void handleRefreshModels(true) : undefined
+                }
+                onUpdateModel={handleUpdateAgentModel}
                 onSendMessage={handleSendChatMessage}
                 onClearThread={handleClearChatThread}
                 onOpenAddAgent={handleOpenAddAgent}
@@ -2228,6 +2341,12 @@ export default function App() {
         <AddAgentModal
           open={addAgentOpen}
           isLiveBridge={bridgeStatus === 'live'}
+          availableModels={availableModels}
+          modelsSource={modelsSource}
+          loadingModels={loadingModels}
+          onRefreshModels={
+            bridgeStatus === 'live' ? () => void handleRefreshModels(true) : undefined
+          }
           onClose={() => setAddAgentOpen(false)}
           onAddFromPreset={handleHireSpecialist}
           onAddCustomAgent={handleCreateCustomAgent}

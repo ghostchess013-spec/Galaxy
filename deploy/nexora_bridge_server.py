@@ -43,6 +43,7 @@ UPSTREAM_ENDPOINTS = {
 }
 
 AGENT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,48}$")
+MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
 
 ALLOWED_SYSTEMD_UNITS: Set[str] = {
     "hermes-gateway",
@@ -96,9 +97,11 @@ blackbox_logs: List[Dict[str, Any]] = []
 pending_approvals: Dict[str, Dict[str, Any]] = {}
 ws_clients: Set[WebSocket] = set()
 _chat_ctx_cache: Dict[str, Dict[str, Any]] = {}
+_models_cache: Dict[str, Any] = {"models": [], "source": "fallback", "ts": 0.0}
 _recently_deleted_profiles: Dict[str, float] = {}
 _preferred_router_key: str = ""
 CHAT_CTX_TTL_SEC = 180.0
+MODELS_CACHE_TTL_SEC = 60.0
 DELETED_PROFILE_GRACE_SEC = 15.0
 
 
@@ -264,6 +267,16 @@ def normalize_router_model(raw: Optional[str]) -> str:
     # Legacy UI preset labels like "9router / claude-sonnet-4" are not valid 9Router provider IDs
     if re.match(r"^9router\s*/", val, re.IGNORECASE):
         return "combo-best"
+    return val
+
+
+def validate_model_id(raw: Optional[str]) -> str:
+    val = normalize_router_model(raw)
+    if not MODEL_ID_RE.match(val):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid model identifier (use letters, numbers, and . _ : / @ - only)",
+        )
     return val
 
 
@@ -546,6 +559,10 @@ class UpdateSoulReq(BaseModel):
     model: Optional[str] = None
 
 
+class UpdateModelReq(BaseModel):
+    model: str
+
+
 class SaveFileReq(BaseModel):
     path: str
     content: str
@@ -632,7 +649,7 @@ async def create_agent(req: CreateAgentReq):
             detail="Core Telegram profiles (default & vps-guardian) are reserved and isolated",
         )
     safe_avatar = validate_avatar_value(req.avatar, strict=False)
-    safe_model = normalize_router_model(req.model)
+    safe_model = validate_model_id(req.model)
     display_name = (req.name or slug).strip()[:64] or slug
     building_name = (req.building_name or "").strip()[:80]
     soul = req.soul or f"# SOUL.md — {display_name}\nRole: {req.role}\n"
@@ -654,6 +671,60 @@ payload = json.loads(__PAYLOAD_JSON__)
 slug = payload['slug']
 meta = payload['meta']
 soul = payload['soul']
+chosen_model = str(meta.get('model') or 'combo-best').strip()
+
+def upsert_config_model(raw_text: str, new_model: str) -> str:
+    lines = raw_text.splitlines() if raw_text else []
+    updated = False
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m_top = re.match(r'^model\s*:\s*(.*)$', line)
+        if m_top and not updated:
+            rest = m_top.group(1).strip()
+            if rest and not rest.startswith('#'):
+                # Scalar top-level `model: ...`
+                out.append(f'model: {new_model}')
+                updated = True
+                i += 1
+                continue
+            # Nested `model:` block
+            out.append(line)
+            i += 1
+            block_lines = []
+            block_indent = None
+            while i < len(lines):
+                nxt = lines[i]
+                stripped = nxt.lstrip(' ')
+                indent = len(nxt) - len(stripped)
+                if stripped and not stripped.startswith('#') and indent == 0:
+                    break
+                if stripped and not stripped.startswith('#') and block_indent is None:
+                    block_indent = indent
+                block_lines.append(nxt)
+                i += 1
+            ind_str = ' ' * (block_indent or 2)
+            replaced_in_block = False
+            for bl in block_lines:
+                m_key = re.match(r'^(\s*)(default|name)\s*:\s*(.*)$', bl)
+                if m_key and not replaced_in_block:
+                    out.append(f'{m_key.group(1)}{m_key.group(2)}: {new_model}')
+                    replaced_in_block = True
+                else:
+                    out.append(bl)
+            if not replaced_in_block:
+                out.append(f'{ind_str}default: {new_model}')
+            updated = True
+            continue
+        out.append(line)
+        i += 1
+    if not updated:
+        if out and out[-1].strip():
+            out.append('')
+        out.append('model:')
+        out.append(f'  default: {new_model}')
+    return '\n'.join(out) + '\n'
 
 h_home = (Path.home() / '.hermes').resolve()
 root = h_home / 'profiles'
@@ -697,7 +768,7 @@ if src_env.is_file() and not env_copied:
             pass
         env_copied = True
 
-# 3. Copy sanitized config.yaml (strips messaging/telegram sections so bots are never affected)
+# 3. Copy sanitized config.yaml (strips messaging/telegram sections) and set agent's chosen model
 src_cfg = h_home / 'config.yaml'
 dst_cfg = d / 'config.yaml'
 config_copied = dst_cfg.is_file()
@@ -722,7 +793,12 @@ if src_cfg.is_file() and not config_copied:
         if blocked_cfg_re.search(line):
             continue
         out_lines.append(line)
-    dst_cfg.write_text('\n'.join(out_lines) + '\n', encoding='utf-8')
+    dst_cfg.write_text(upsert_config_model('\n'.join(out_lines), chosen_model), encoding='utf-8')
+    config_copied = True
+elif dst_cfg.is_file():
+    dst_cfg.write_text(upsert_config_model(dst_cfg.read_text(encoding='utf-8', errors='replace'), chosen_model), encoding='utf-8')
+else:
+    dst_cfg.write_text(upsert_config_model('', chosen_model), encoding='utf-8')
     config_copied = True
 
 (d / 'nexora_meta.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
@@ -732,6 +808,7 @@ print(json.dumps({
     'ok': True,
     'slug': slug,
     'path': str(d),
+    'model': chosen_model,
     'skills_linked': skills_linked,
     'env_copied': env_copied,
     'config_copied': config_copied,
@@ -803,6 +880,203 @@ async def update_soul(agent_id: str, req: UpdateSoulReq):
         raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to save SOUL.md")
     record_blackbox(slug, "CONFIG", "UPDATE_SOUL", f"Updated SOUL.md ({slug})")
     return {"ok": True}
+
+
+@app.get("/api/models", dependencies=[Depends(verify_token)])
+async def list_router_models(refresh: int = 0):
+    """Fetches real available models & combos directly from 9Router (:20128/v1/models)."""
+    now_ts = time.time()
+    if not refresh and _models_cache["models"] and (now_ts - float(_models_cache["ts"])) < MODELS_CACHE_TTL_SEC:
+        return {
+            "ok": True,
+            "source": _models_cache["source"],
+            "models": _models_cache["models"],
+        }
+
+    ctx = await _discover_chat_context("operator", force_refresh=bool(refresh))
+    candidate_keys = list(ctx.get("keys", []))
+    if "" not in candidate_keys:
+        candidate_keys.append("")
+
+    discovered: List[Dict[str, str]] = []
+    source = "fallback"
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            for api_key in candidate_keys:
+                headers: Dict[str, str] = {"Accept": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                    headers["x-api-key"] = api_key
+                try:
+                    resp = await client.get(f"{UPSTREAM_ENDPOINTS['nine_router']}/v1/models", headers=headers)
+                    if resp.status_code >= 400:
+                        continue
+                    data = resp.json()
+                    raw_items = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                    if isinstance(raw_items, list) and raw_items:
+                        seen: Set[str] = set()
+                        for item in raw_items:
+                            if isinstance(item, str):
+                                mid = item.strip()
+                                owner = ""
+                            elif isinstance(item, dict):
+                                mid = str(item.get("id") or item.get("name") or "").strip()
+                                owner = str(item.get("owned_by") or item.get("provider") or "").strip()
+                            else:
+                                continue
+                            if not mid or mid in seen or not MODEL_ID_RE.match(mid):
+                                continue
+                            seen.add(mid)
+                            is_combo = mid.lower().startswith("combo") or owner.lower() == "combo"
+                            group = "combo" if is_combo else (owner or (mid.split("/", 1)[0] if "/" in mid else "9router"))
+                            discovered.append({"id": mid, "label": mid, "group": group})
+                        if discovered:
+                            source = "9router"
+                            break
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    if discovered:
+        discovered.sort(key=lambda m: (0 if m["group"] == "combo" else 1, m["id"].lower()))
+    else:
+        discovered = [{"id": "combo-best", "label": "combo-best", "group": "combo"}]
+
+    _models_cache["models"] = discovered
+    _models_cache["source"] = source
+    _models_cache["ts"] = now_ts
+    return {"ok": True, "source": source, "models": discovered}
+
+
+@app.put("/api/agents/{agent_id}/model", dependencies=[Depends(verify_token)])
+async def update_agent_model(agent_id: str, req: UpdateModelReq):
+    """Updates an isolated dashboard agent's model in both nexora_meta.json and Hermes profile config.yaml."""
+    slug = validate_agent_slug(agent_id, allow_default=False)
+    if slug in EXCLUDED_CORE_PROFILES:
+        raise HTTPException(status_code=403, detail="Core Telegram profiles are isolated from this dashboard")
+    safe_model = validate_model_id(req.model)
+
+    update_tpl = r"""
+import json, re
+from pathlib import Path
+
+payload = json.loads(__PAYLOAD_JSON__)
+slug = payload['slug']
+new_model = payload['model']
+
+def upsert_config_model(raw_text: str, chosen: str) -> str:
+    lines = raw_text.splitlines() if raw_text else []
+    updated = False
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m_top = re.match(r'^model\s*:\s*(.*)$', line)
+        if m_top and not updated:
+            rest = m_top.group(1).strip()
+            if rest and not rest.startswith('#'):
+                out.append(f'model: {chosen}')
+                updated = True
+                i += 1
+                continue
+            out.append(line)
+            i += 1
+            block_lines = []
+            block_indent = None
+            while i < len(lines):
+                nxt = lines[i]
+                stripped = nxt.lstrip(' ')
+                indent = len(nxt) - len(stripped)
+                if stripped and not stripped.startswith('#') and indent == 0:
+                    break
+                if stripped and not stripped.startswith('#') and block_indent is None:
+                    block_indent = indent
+                block_lines.append(nxt)
+                i += 1
+            ind_str = ' ' * (block_indent or 2)
+            replaced_in_block = False
+            for bl in block_lines:
+                m_key = re.match(r'^(\s*)(default|name)\s*:\s*(.*)$', bl)
+                if m_key and not replaced_in_block:
+                    out.append(f'{m_key.group(1)}{m_key.group(2)}: {chosen}')
+                    replaced_in_block = True
+                else:
+                    out.append(bl)
+            if not replaced_in_block:
+                out.append(f'{ind_str}default: {chosen}')
+            updated = True
+            continue
+        out.append(line)
+        i += 1
+    if not updated:
+        if out and out[-1].strip():
+            out.append('')
+        out.append('model:')
+        out.append(f'  default: {chosen}')
+    return '\n'.join(out) + '\n'
+
+h_home = (Path.home() / '.hermes').resolve()
+root = h_home / 'profiles'
+root.mkdir(parents=True, exist_ok=True)
+root = root.resolve()
+d = (root / slug).resolve()
+assert str(d).startswith(str(root) + '/'), f'Unsafe target path: {d}'
+d.mkdir(parents=True, exist_ok=True)
+
+# 1. Update nexora_meta.json
+meta_fp = d / 'nexora_meta.json'
+meta = {}
+if meta_fp.exists():
+    try:
+        meta = json.loads(meta_fp.read_text(encoding='utf-8'))
+    except Exception:
+        meta = {}
+meta['model'] = new_model
+meta_fp.write_text(json.dumps(meta, indent=2), encoding='utf-8')
+
+# 2. Update Hermes profile config.yaml (if missing, seed sanitized copy from ~/.hermes/config.yaml first)
+cfg_fp = d / 'config.yaml'
+if cfg_fp.is_file():
+    raw_cfg = cfg_fp.read_text(encoding='utf-8', errors='replace')
+else:
+    src_cfg = h_home / 'config.yaml'
+    raw_cfg = ''
+    if src_cfg.is_file():
+        out_lines = []
+        skip_indent = None
+        skip_section_re = re.compile(r'^(\s*)(telegram|discord|slack|whatsapp|messaging|platforms|channels)\s*:', re.I)
+        blocked_cfg_re = re.compile(r'(bot_token|telegram_token|chat_id|allowed_users|webhook_url)', re.I)
+        for line in src_cfg.read_text(encoding='utf-8', errors='replace').splitlines():
+            stripped = line.lstrip(' ')
+            indent = len(line) - len(stripped)
+            if skip_indent is not None:
+                if stripped and not stripped.startswith('#') and indent <= skip_indent:
+                    skip_indent = None
+                else:
+                    continue
+            m = skip_section_re.match(line)
+            if m:
+                skip_indent = len(m.group(1))
+                continue
+            if blocked_cfg_re.search(line):
+                continue
+            out_lines.append(line)
+        raw_cfg = '\n'.join(out_lines)
+
+cfg_fp.write_text(upsert_config_model(raw_cfg, new_model), encoding='utf-8')
+print(json.dumps({'ok': True, 'slug': slug, 'model': new_model, 'config_updated': True}))
+"""
+    encoded_payload = json.dumps(json.dumps({"slug": slug, "model": safe_model}))
+    py = update_tpl.replace("__PAYLOAD_JSON__", encoded_payload)
+    res = await ssh_run_python(py, timeout=12.0)
+    if not res["ok"]:
+        raise HTTPException(status_code=500, detail=res["stderr"] or "Failed to update agent model")
+    _chat_ctx_cache.pop(slug, None)
+    record_blackbox(slug, "CONFIG", "UPDATE_MODEL", f"Switched model to '{safe_model}' & synced config.yaml")
+    asyncio.create_task(_broadcast_fresh_telemetry())
+    return {"ok": True, "slug": slug, "model": safe_model, "config_updated": True}
 
 
 async def _broadcast_fresh_telemetry() -> None:

@@ -22,8 +22,10 @@ import {
 } from 'lucide-react';
 import { PORTRAIT_GALLERY } from '../../data/seedData';
 import { useI18n } from '../../i18n/translations';
+import type { BridgeModelOption } from '../../services/nexoraBridge';
 import type { Agent, AgentStatus, ChatMessage, ThemeId } from '../../types/nexora';
 import { compressImageToPortraitDataUrl } from '../AddAgentModal';
+import AgentModelPicker from '../AgentModelPicker';
 import AgentOffice3D, {
   type AgentLiveMood,
   type OfficeCameraPreset,
@@ -36,6 +38,10 @@ interface InOfficeChatPanelProps {
   selectedMood?: AgentLiveMood;
   thread: ChatMessage[];
   isSending: boolean;
+  availableModels: BridgeModelOption[];
+  loadingModels?: boolean;
+  onRefreshModels?: () => void;
+  onUpdateModel: (agentId: string, model: string) => void;
   onSelectAgent: (id: string) => void;
   onSendMessage: (agentId: string, content: string, attachmentName?: string) => void;
   onClearThread: (agentId: string) => void;
@@ -96,6 +102,10 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
   selectedMood,
   thread,
   isSending,
+  availableModels,
+  loadingModels,
+  onRefreshModels,
+  onUpdateModel,
   onSelectAgent,
   onSendMessage,
   onClearThread,
@@ -212,9 +222,16 @@ const InOfficeChatPanel = memo(function InOfficeChatPanel({
                 {selectedAgent.status === 'working' ? 1 : selectedMood?.floor ?? 1}
               </span>
             </div>
-            <p className="text-[11px] text-[var(--nx-text-subtle)] truncate">
-              {selectedAgent.model} · {selectedAgent.profileKey}
-            </p>
+            <div className="mt-1 flex items-center gap-1.5 min-w-0">
+              <AgentModelPicker
+                compact
+                value={selectedAgent.model}
+                models={availableModels}
+                loading={loadingModels}
+                onChange={(nextModel) => onUpdateModel(selectedAgent.id, nextModel)}
+                onRefresh={onRefreshModels}
+              />
+            </div>
           </div>
         </div>
 
@@ -337,9 +354,13 @@ interface AgentCityViewProps {
   theme: ThemeId;
   chats: Record<string, ChatMessage[]>;
   sendingAgentId?: string | null;
+  availableModels: BridgeModelOption[];
+  loadingModels?: boolean;
+  onRefreshModels?: () => void;
   onSelectAgent: (id: string) => void;
   onUpdateStatus: (agentId: string, status: AgentStatus) => void;
   onUpdateAvatar: (agentId: string, avatarUrl: string) => void;
+  onUpdateModel: (agentId: string, model: string) => void;
   onOpenAddAgent: () => void;
   onRetireSpecialist: (agentId: string) => void;
   onOpenChat: (agentId: string) => void;
@@ -354,9 +375,13 @@ const AgentCityView = memo(function AgentCityView({
   theme,
   chats,
   sendingAgentId,
+  availableModels,
+  loadingModels,
+  onRefreshModels,
   onSelectAgent,
   onUpdateStatus,
   onUpdateAvatar,
+  onUpdateModel,
   onOpenAddAgent,
   onRetireSpecialist,
   onOpenChat,
@@ -790,6 +815,10 @@ const AgentCityView = memo(function AgentCityView({
               selectedMood={selectedMood ?? undefined}
               thread={activeThread}
               isSending={isSendingToSelected}
+              availableModels={availableModels}
+              loadingModels={loadingModels}
+              onRefreshModels={onRefreshModels}
+              onUpdateModel={onUpdateModel}
               onSelectAgent={onSelectAgent}
               onSendMessage={onSendMessage}
               onClearThread={onClearThread}

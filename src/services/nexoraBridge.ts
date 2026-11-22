@@ -268,6 +268,25 @@ export async function createBridgeAgent(
   return bridgeJson(baseUrl, token, '/api/agents', { method: 'POST', body: payload });
 }
 
+export interface BridgeModelOption {
+  id: string;
+  label: string;
+  group: string;
+}
+
+export const DEFAULT_ROUTER_MODELS: BridgeModelOption[] = [
+  { id: 'combo-best', label: 'combo-best', group: 'combo' },
+];
+
+export async function fetchBridgeModels(
+  baseUrl: string,
+  token: string,
+  refresh = false,
+): Promise<{ ok: boolean; source?: string; models: BridgeModelOption[] }> {
+  const suffix = refresh ? '?refresh=1' : '';
+  return bridgeJson(baseUrl, token, `/api/models${suffix}`, { timeoutMs: 12000 });
+}
+
 export async function updateBridgeAgentAvatar(
   baseUrl: string,
   token: string,
@@ -277,6 +296,18 @@ export async function updateBridgeAgentAvatar(
   return bridgeJson(baseUrl, token, `/api/agents/${encodeURIComponent(agentId)}/avatar`, {
     method: 'PUT',
     body: { avatar },
+  });
+}
+
+export async function updateBridgeAgentModel(
+  baseUrl: string,
+  token: string,
+  agentId: string,
+  model: string,
+): Promise<{ ok: boolean; slug?: string; model?: string; config_updated?: boolean }> {
+  return bridgeJson(baseUrl, token, `/api/agents/${encodeURIComponent(agentId)}/model`, {
+    method: 'PUT',
+    body: { model },
   });
 }
 

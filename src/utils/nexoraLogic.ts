@@ -49,6 +49,7 @@ export function hireSpecialist(
   customName?: string,
   customBuilding?: string,
   customAvatarUrl?: string,
+  customModel?: string,
 ): { agents: Agent[]; hired: Agent } {
   const trimmedName = (customName ?? '').trim() || preset.name;
   const trimmedBuilding = (customBuilding ?? '').trim() || preset.buildingName;
@@ -71,7 +72,7 @@ export function hireSpecialist(
     status: 'working',
     archetype: preset.archetype,
     avatarUrl: (customAvatarUrl ?? '').trim() || preset.avatarUrl,
-    model: preset.model,
+    model: (customModel ?? '').trim() || preset.model,
     currentTask: 'Initializing workspace & syncing permanent operating rules',
     sessionsCount: 1,
     tokensUsed: 4200,
