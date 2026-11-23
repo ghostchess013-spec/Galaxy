@@ -214,6 +214,7 @@ $SUDO chmod +x /usr/local/bin/galaxy-update
 echo ""
 echo "[6/6] Merestart nexora-bridge.service & verifikasi..."
 $SUDO systemctl daemon-reload
+$SUDO systemctl enable nexora-bridge.service
 $SUDO systemctl restart nexora-bridge.service
 sleep 2
 
